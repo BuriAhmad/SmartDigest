@@ -1,4 +1,5 @@
 import asyncio
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -22,6 +23,22 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def get_url() -> str:
+    """Read DATABASE_URL from environment (Railway injects this).
+    Falls back to alembic.ini value for local dev.
+    Converts postgres:// / postgresql:// to asyncpg dialect.
+    """
+    url = os.environ.get(
+        "DATABASE_URL",
+        config.get_main_option("sqlalchemy.url", ""),
+    )
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    return url
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -34,7 +51,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
+    url = get_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -58,6 +75,8 @@ async def run_async_migrations() -> None:
     and associate a connection with the context.
 
     """
+    # Override the URL from environment so Railway's DATABASE_URL is used
+    config.set_main_option("sqlalchemy.url", get_url())
 
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
