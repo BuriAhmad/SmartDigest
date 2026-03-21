@@ -1,6 +1,41 @@
+# Python
 .venv/
-.env
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project-specific dev/planning files
+0_environment_setup.txt
+PHASE_1_PLAN.md
+Questions.txt
+smartdigest_spec.md
+SmartDigest.md
+test_gemini.py
+
+# Alembic compiled
 alembic/versions/*.pyc
+
+# Logs
+*.log
