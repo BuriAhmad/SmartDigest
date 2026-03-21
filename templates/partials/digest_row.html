@@ -1,0 +1,19 @@
+<tr>
+    <td class="px-4 py-2 text-gray-800">{{ d.topic or "—" }}</td>
+    <td class="px-4 py-2 text-gray-500">{{ d.created_at.strftime('%b %d, %H:%M') if d.created_at else "—" }}</td>
+    <td class="px-4 py-2">
+        {% if d.status == "delivered" %}
+        <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">delivered</span>
+        {% elif d.status == "processing" %}
+        <span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">processing</span>
+        {% elif d.status == "failed" %}
+        <span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">failed</span>
+        {% else %}
+        <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{{ d.status }}</span>
+        {% endif %}
+    </td>
+    <td class="px-4 py-2 text-gray-500">{{ d.item_count or 0 }}</td>
+    <td class="px-4 py-2">
+        <a href="/digests/{{ d.id }}" class="text-blue-600 hover:text-blue-700 text-xs font-medium">View</a>
+    </td>
+</tr>

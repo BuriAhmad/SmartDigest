@@ -1,0 +1,127 @@
+SMARTDIGEST — ENVIRONMENT SETUP CHECKLIST
+==========================================
+Do all of this manually before handing to Copilot.
+
+TOOLS TO HAVE INSTALLED ON YOUR MACHINE
+-----------------------------------------
+- Python 3.12          https://www.python.org/downloads/
+- Git                  https://git-scm.com/
+- Docker Desktop       https://www.docker.com/products/docker-desktop/
+  (needed to run Postgres + Redis locally without installing them natively)
+- VS Code              already have it presumably
+- GitHub Copilot       extension in VS Code
+
+
+CREATE THE PROJECT FOLDER + REPO
+----------------------------------
+  mkdir smartdigest
+  cd smartdigest
+  git init
+  git branch -M main
+
+
+CREATE AND ACTIVATE VIRTUAL ENVIRONMENT
+-----------------------------------------
+  python3.12 -m venv .venv
+
+  # Mac/Linux:
+  source .venv/bin/activate
+
+  # Windows:
+  .venv\Scripts\activate
+
+  You should see (.venv) in your terminal prompt.
+
+
+INSTALL PYTHON DEPENDENCIES
+-----------------------------
+Create a file called requirements.txt in the project root with this content,
+then run: pip install -r requirements.txt
+
+--- requirements.txt contents ---
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+sqlalchemy[asyncio]==2.0.35
+asyncpg==0.29.0
+alembic==1.13.3
+pydantic==2.9.2
+pydantic-settings==2.5.2
+arq==0.26.1
+redis==5.1.0
+httpx==0.27.2
+feedparser==6.0.11
+google-generativeai==0.8.3
+resend==2.4.0
+structlog==24.4.0
+jinja2==3.1.4
+python-multipart==0.0.12
+slowapi==0.1.9
+python-dotenv==1.0.1
+--- end ---
+
+
+ACCOUNTS YOU NEED TO CREATE (all free)
+----------------------------------------
+1. Google AI Studio   https://aistudio.google.com/
+   → Create API key → save it (this replaces Anthropic)
+
+2. Resend             https://resend.com/
+   → Sign up → Settings → API Keys → Create API Key → save it
+   → Also verify your sender email address in Resend dashboard
+
+3. Railway            https://railway.app/
+   → Sign up with GitHub (makes deployment easier later)
+
+
+CREATE .env FILE
+-----------------
+Create a file called .env in the project root (never commit this to git):
+
+GEMINI_API_KEY=your_google_ai_studio_key_here
+RESEND_API_KEY=your_resend_key_here
+RESEND_FROM_EMAIL=you@yourdomain.com
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/smartdigest
+REDIS_URL=redis://localhost:6379
+ENV=development
+
+
+CREATE .gitignore FILE
+-----------------------
+Create .gitignore with at least:
+
+.venv/
+.env
+__pycache__/
+*.pyc
+.DS_Store
+alembic/versions/*.pyc
+
+
+START LOCAL POSTGRES + REDIS VIA DOCKER
+-----------------------------------------
+Run these once. They'll keep running in the background.
+
+  docker run -d \
+    --name smartdigest-postgres \
+    -e POSTGRES_PASSWORD=postgres \
+    -e POSTGRES_DB=smartdigest \
+    -p 5432:5432 \
+    postgres:16
+
+  docker run -d \
+    --name smartdigest-redis \
+    -p 6379:6379 \
+    redis:7
+
+To stop them later: docker stop smartdigest-postgres smartdigest-redis
+To start again:     docker start smartdigest-postgres smartdigest-redis
+
+
+VERIFY EVERYTHING IS WORKING
+------------------------------
+  python -c "import fastapi, sqlalchemy, arq, feedparser; print('all good')"
+
+  # Should print: all good
+
+
+YOU'RE READY. Hand off to Copilot now.

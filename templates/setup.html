@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Setup — SmartDigest{% endblock %}
+
+{% block content %}
+<div class="max-w-lg mx-auto mt-16">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+        <div class="text-center mb-6">
+            <h2 class="text-2xl font-bold text-gray-800">Welcome to SmartDigest</h2>
+            <p class="text-gray-500 mt-2">Generate an API key to get started.</p>
+        </div>
+
+        <div id="key-section">
+            <button
+                hx-post="/api/v1/keys"
+                hx-target="#key-section"
+                hx-swap="innerHTML"
+                class="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 font-medium transition-colors"
+            >
+                🔑 Generate API Key
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // After HTMX swaps in the key response, render it nicely
+    document.body.addEventListener("htmx:afterSwap", function(evt) {
+        if (evt.detail.target.id === "key-section") {
+            try {
+                var data = JSON.parse(evt.detail.xhr.responseText);
+                evt.detail.target.innerHTML = `
+                    <div class="space-y-4">
+                        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                            <p class="text-yellow-800 text-sm font-medium">⚠️ This key will not be shown again. Copy it now!</p>
+                        </div>
+                        <div class="relative">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Your API Key</label>
+                            <div class="flex gap-2">
+                                <input type="text" readonly value="${data.key}"
+                                    id="api-key-display"
+                                    class="flex-1 font-mono text-sm bg-gray-50 border border-gray-300 rounded-lg px-3 py-2">
+                                <button onclick="copyKey()" class="bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg text-sm transition-colors">
+                                    📋 Copy
+                                </button>
+                            </div>
+                        </div>
+                        <div class="text-sm text-gray-500">
+                            <span class="font-medium">Prefix:</span>
+                            <span class="font-mono">${data.prefix}…</span>
+                        </div>
+                        <a href="/"
+                            class="block text-center w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 font-medium transition-colors mt-4">
+                            Continue to Dashboard →
+                        </a>
+                    </div>
+                `;
+            } catch(e) {}
+        }
+    });
+
+    function copyKey() {
+        var input = document.getElementById("api-key-display");
+        input.select();
+        document.execCommand("copy");
+        showToast("API key copied to clipboard!", "success");
+    }
+</script>
+{% endblock %}

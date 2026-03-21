@@ -1,0 +1,34 @@
+<div class="bg-white rounded-lg border border-gray-200 p-4" id="sub-card-{{ sub.id }}">
+    <div class="flex justify-between items-start">
+        <div class="flex-1">
+            <div class="flex items-center gap-2 mb-2">
+                <h3 class="font-semibold text-gray-800">{{ sub.topic }}</h3>
+                {% if sub.active %}
+                <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Active</span>
+                {% else %}
+                <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Paused</span>
+                {% endif %}
+            </div>
+            <!-- Source chips -->
+            <div class="flex flex-wrap gap-1 mb-2">
+                {% for url in sub.sources %}
+                <span class="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{{ url | replace("https://", "") | truncate(30) }}</span>
+                {% endfor %}
+            </div>
+            <div class="text-xs text-gray-500">
+                📧 {{ sub.email }} · ⏰ {{ sub.schedule }}
+            </div>
+        </div>
+        <div class="flex items-center gap-2 ml-4">
+            <button onclick="triggerPipeline({{ sub.id }})"
+                id="trigger-btn-{{ sub.id }}"
+                class="bg-green-50 text-green-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-green-100 transition-colors">
+                ▶ Trigger Now
+            </button>
+            <button onclick="deleteSub({{ sub.id }})"
+                class="bg-red-50 text-red-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-100 transition-colors">
+                🗑
+            </button>
+        </div>
+    </div>
+</div>

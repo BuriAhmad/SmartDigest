@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SmartDigest{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <style>
+        /* Toast notification */
+        .toast {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 50;
+            animation: slideIn 0.3s ease, fadeOut 0.3s ease 3s forwards;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+        /* Modal backdrop */
+        .modal-backdrop {
+            background: rgba(0, 0, 0, 0.5);
+        }
+        /* Loading spinner */
+        .htmx-indicator {
+            display: none;
+        }
+        .htmx-request .htmx-indicator {
+            display: inline-block;
+        }
+        .htmx-request.htmx-indicator {
+            display: inline-block;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Top bar -->
+    <nav class="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-4">
+            <h1 class="text-xl font-bold text-blue-600">📬 SmartDigest</h1>
+            {% if key_prefix %}
+            <span class="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded font-mono">Key: {{ key_prefix }}…</span>
+            {% endif %}
+        </div>
+        <div class="flex items-center gap-3">
+            <a href="/docs" class="text-sm text-gray-500 hover:text-gray-700">API Docs</a>
+            {% block nav_actions %}{% endblock %}
+        </div>
+    </nav>
+
+    <!-- Toast container -->
+    <div id="toast-container"></div>
+
+    <!-- Main content -->
+    <main class="max-w-7xl mx-auto px-6 py-6">
+        {% block content %}{% endblock %}
+    </main>
+
+    <script>
+        // Listen for HX-Trigger response headers to show toasts
+        document.body.addEventListener("showToast", function(evt) {
+            var msg = evt.detail.message || "Done";
+            var level = evt.detail.level || "success";
+            showToast(msg, level);
+        });
+
+        function showToast(message, level) {
+            var colors = {
+                success: "bg-green-500",
+                error: "bg-red-500",
+                warning: "bg-yellow-500",
+                info: "bg-blue-500"
+            };
+            var color = colors[level] || colors.info;
+            var container = document.getElementById("toast-container");
+            var toast = document.createElement("div");
+            toast.className = "toast " + color + " text-white px-4 py-3 rounded-lg shadow-lg text-sm";
+            toast.textContent = message;
+            container.appendChild(toast);
+            setTimeout(function() { toast.remove(); }, 3500);
+        }
+
+        // Handle HTMX response errors
+        document.body.addEventListener("htmx:responseError", function(evt) {
+            var detail = "Something went wrong";
+            try {
+                var json = JSON.parse(evt.detail.xhr.responseText);
+                detail = json.detail || detail;
+            } catch(e) {}
+            showToast(detail, "error");
+        });
+    </script>
+</body>
+</html>
