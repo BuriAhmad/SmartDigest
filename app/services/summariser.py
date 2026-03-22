@@ -9,6 +9,7 @@ gemini-2.5-flash if quota exhausted (each has separate free-tier bucket).
 
 import asyncio
 import json
+import traceback
 from typing import Dict, List
 
 import httpx
@@ -191,7 +192,6 @@ async def summarise_articles(
             return articles  # SUCCESS — stop trying more models
 
         except Exception as exc:
-            import traceback
             tb = traceback.format_exc()
             log.error("summariser.exception", model=model, error=str(exc), traceback=tb)
             last_error = str(exc)

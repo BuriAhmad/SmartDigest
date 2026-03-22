@@ -71,14 +71,16 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
             )
 
         raw_key = parts[1]
+        key_prefix = raw_key[:4]
 
         # Hash the incoming key
         incoming_hash = hashlib.sha256(raw_key.encode()).hexdigest()
 
-        # Look up in DB
+        # Look up by prefix first (indexed), then compare full hash — avoids full table scan
         async with async_session() as session:
             result = await session.execute(
                 select(ApiKey).where(
+                    ApiKey.prefix == key_prefix,
                     ApiKey.revoked_at.is_(None),
                 )
             )

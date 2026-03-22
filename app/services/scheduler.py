@@ -95,10 +95,10 @@ async def run_pipeline(ctx: dict, subscription_id: int) -> dict:
         ))
         await session.flush()
 
+        summarise_start_ms = _now_ms()
         try:
-            start_ms = _now_ms()
             articles = await summarise_articles(articles, sub.topic)
-            summarise_ms = _now_ms() - start_ms
+            summarise_ms = _now_ms() - summarise_start_ms
 
             session.add(PipelineEvent(
                 digest_id=digest_id, stage="summarise", status="success",
@@ -108,7 +108,7 @@ async def run_pipeline(ctx: dict, subscription_id: int) -> dict:
             log.info("pipeline.summarise_done", articles=len(articles), duration_ms=summarise_ms)
 
         except Exception as exc:
-            summarise_ms = _now_ms() - start_ms
+            summarise_ms = _now_ms() - summarise_start_ms
             session.add(PipelineEvent(
                 digest_id=digest_id, stage="summarise", status="failed",
                 duration_ms=summarise_ms, error_msg=str(exc),
@@ -195,10 +195,6 @@ async def enqueue_scheduled_digests(ctx: dict) -> dict:
     log.info("cron.checking_subscriptions")
 
     settings = get_settings()
-    redis_url = settings.REDIS_URL.replace("redis://", "")
-    parts = redis_url.split(":")
-    host = parts[0] if parts[0] else "localhost"
-    port = int(parts[1]) if len(parts) > 1 else 6379
 
     async with async_session() as session:
         result = await session.execute(
@@ -210,7 +206,7 @@ async def enqueue_scheduled_digests(ctx: dict) -> dict:
         log.info("cron.no_active_subscriptions")
         return {"enqueued": 0}
 
-    redis = await create_pool(RedisSettings(host=host, port=port))
+    redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
     enqueued = 0
     for sub in subs:
         try:

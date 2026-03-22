@@ -3,6 +3,7 @@
 If RESEND_API_KEY is not set, logs the email content (dev mode).
 """
 
+import asyncio
 import structlog
 import resend
 
@@ -38,7 +39,7 @@ async def send_digest_email(
             "subject": subject,
             "html": html_body,
         }
-        email_response = resend.Emails.send(params)
+        email_response = await asyncio.to_thread(resend.Emails.send, params)
         logger.info(
             "mailer.sent",
             to=to_email,

@@ -1,17 +1,19 @@
 # SmartDigest
 
-> **An async AI content pipeline** — subscribe to topics, fetch the latest articles from RSS feeds, summarise them with Google Gemini, and receive a clean email digest. Built with FastAPI, PostgreSQL, Redis, and ARQ.
+> A production-grade async content pipeline — subscribe to topics, fetch articles from RSS feeds concurrently, summarise them with Google Gemini in a single batched API call, and receive a clean HTML email digest. Built on FastAPI, PostgreSQL, Redis, and ARQ.
+
+**Live demo:** [smartdigest-production.up.railway.app](https://smartdigest-production.up.railway.app)
 
 ---
 
 ## What it does
 
-SmartDigest is a production-grade background processing system. You define a topic (e.g. "Machine Learning", "Software Jobs"), pick your RSS sources, and set a schedule. SmartDigest:
+You define a topic (e.g. "AI Research", "Backend Engineering"), pick from a curated list of RSS sources, and set a delivery schedule. SmartDigest handles the rest:
 
-1. **Fetches** articles from your chosen RSS feeds concurrently
-2. **Summarises** all articles in a single Gemini API call (batched to minimise free-tier usage)
-3. **Delivers** a beautifully formatted HTML email digest to your inbox
-4. **Tracks** every pipeline stage in the database for full observability
+1. **Fetches** articles from your chosen feeds concurrently via async HTTP
+2. **Summarises** all articles in a single Gemini API batch call — maximising context window usage and minimising quota consumption
+3. **Delivers** a formatted HTML digest to your inbox via Resend
+4. **Tracks** every pipeline stage in PostgreSQL for full observability
 
 ---
 
@@ -19,24 +21,24 @@ SmartDigest is a production-grade background processing system. You define a top
 
 ```
 Browser / API Client
-       │
-       ▼
-┌─────────────────┐      enqueue job      ┌──────────────────┐
-│  FastAPI Server │ ────────────────────► │   Redis Queue    │
-│  (Uvicorn)      │                       └────────┬─────────┘
-└─────────────────┘                                │ dequeue
-       │                                           ▼
-       │ read/write                    ┌──────────────────────┐
-       ▼                               │    ARQ Worker        │
-┌─────────────────┐                   │  ┌────────────────┐   │
-│   PostgreSQL    │ ◄─────────────────│  │ 1. Fetch RSS   │   │
-│   Database      │                   │  │ 2. Gemini AI   │   │
-└─────────────────┘                   │  │ 3. Send Email  │   │
-                                      │  └────────────────┘   │
-                                      └──────────────────────┘
+        │
+        ▼
+┌──────────────────┐       enqueue job       ┌───────────────────┐
+│  FastAPI (Web)   │ ──────────────────────► │    Redis Queue    │
+│  Uvicorn         │                         └─────────┬─────────┘
+└──────────────────┘                                   │ dequeue
+        │                                              ▼
+        │ async read/write               ┌─────────────────────────┐
+        ▼                                │      ARQ Worker         │
+┌──────────────────┐                     │  ┌───────────────────┐  │
+│    PostgreSQL    │ ◄───────────────────│  │  1. Fetch RSS     │  │
+│    (async ORM)   │                     │  │  2. Gemini AI     │  │
+└──────────────────┘                     │  │  3. Send Email    │  │
+                                         │  └───────────────────┘  │
+                                         └─────────────────────────┘
 ```
 
-The API server and background worker are **completely decoupled** — they only share the Redis queue and the PostgreSQL database. This means the API stays fast and responsive even while long-running pipeline jobs are executing.
+The API server and background worker are **fully decoupled** — they communicate only through the Redis queue and the shared PostgreSQL database. The API returns `202 Accepted` immediately on trigger; the worker handles all long-running work asynchronously.
 
 ---
 
@@ -46,117 +48,113 @@ The API server and background worker are **completely decoupled** — they only 
 |---|---|
 | Web framework | FastAPI 0.115 |
 | ASGI server | Uvicorn |
-| Database | PostgreSQL 16 (Docker) |
-| ORM | SQLAlchemy 2.0 (async) |
+| Database | PostgreSQL 16 |
+| ORM | SQLAlchemy 2.0 (fully async) |
 | Migrations | Alembic |
 | Task queue | ARQ (async Redis queue) |
-| Cache / broker | Redis 7 (Docker) |
-| AI summarisation | Google Gemini 2.0 Flash (REST API) |
+| Cache / broker | Redis 7 |
+| AI summarisation | Google Gemini 2.0 Flash (direct REST, no SDK) |
 | Email delivery | Resend API |
 | HTTP client | httpx (async) |
 | RSS parsing | feedparser |
 | Frontend | Jinja2 + HTMX + Tailwind CSS |
 | Rate limiting | slowapi |
-| Structured logging | structlog |
-| Config management | Pydantic Settings |
+| Structured logging | structlog (JSON in production) |
+| Configuration | Pydantic Settings |
+| Deployment | Railway (web + worker as separate services) |
 
 ---
 
 ## Features
 
-- **API key authentication** — SHA-256 hashed keys, timing-safe comparison
-- **Subscription CRUD** — create, update, delete subscriptions via REST or dashboard UI
-- **One-click pipeline trigger** — manually trigger a digest from the dashboard
-- **Scheduled daily cron** — ARQ cron job enqueues all active subscriptions at 06:00 UTC
-- **Full observability** — every pipeline stage (fetch / summarise / deliver) is recorded in `pipeline_events` with duration, status, and error messages
-- **Live metrics panel** — HTMX-polled dashboard panel showing 24h stats, per-stage latency, and last error
-- **Rate limiting** — 3 trigger requests per hour per API key (slowapi)
-- **Structured JSON logging** — structlog, JSON in production, pretty console in development
-- **Dev mode email** — if `RESEND_API_KEY` is unset, emails are logged to console instead of sent
+- **API key authentication** — SHA-256 hashed keys with timing-safe comparison; prefix-indexed lookup avoids full table scans
+- **Subscription management** — full CRUD via REST API and dashboard UI
+- **Async pipeline** — concurrent feed fetching, single-batch AI summarisation, non-blocking email delivery
+- **Model fallback** — if Gemini 2.0 Flash quota is exhausted, automatically falls back to 2.5 Flash, then lite models
+- **Rate limiting** — 3 pipeline triggers per hour per key (slowapi)
+- **Full observability** — every stage (fetch / summarise / deliver) written to `pipeline_events` with status, duration, and error details
+- **Live metrics panel** — HTMX-polled dashboard showing 24h stats, per-stage average latency, and last error
+- **Scheduled cron** — ARQ cron job enqueues all active subscriptions at 06:00 UTC daily
+- **Dev mode** — if `RESEND_API_KEY` is unset, emails are printed to console; app runs fully without external accounts
+- **Structured logging** — JSON in production, pretty console in development (structlog)
 
 ---
 
 ## Database Schema
 
 ```
-api_keys          — hashed keys with usage counters
-curated_sources   — pre-approved RSS feeds (seeded via CLI)
-subscriptions     — user topic + sources + email + schedule
-digests           — one record per pipeline run
-digest_items      — one record per article, with title + summary + URL
-pipeline_events   — observability log (stage, status, duration_ms, error_msg)
+api_keys          — hashed API keys with usage counters and revocation
+curated_sources   — pre-approved RSS feed list (seeded via CLI)
+subscriptions     — topic + sources + email + cron schedule per API key
+digests           — one record per pipeline run (status, delivered_at)
+digest_items      — one record per article (title, summary, URL, source)
+pipeline_events   — observability log: stage × status × duration_ms × error_msg
 ```
 
 ---
 
-## Getting Started
+## Getting Started (Local)
 
 ### Prerequisites
 
 - Python 3.9+
-- Docker (for PostgreSQL + Redis)
-- A [Resend](https://resend.com) account (free tier works)
-- A [Google AI Studio](https://aistudio.google.com) API key (free tier works)
+- Docker (for PostgreSQL and Redis)
+- [Resend](https://resend.com) API key (free tier)
+- [Google AI Studio](https://aistudio.google.com) API key (free tier)
 
-### 1. Clone and set up the environment
+### 1. Clone and install
 
 ```bash
 git clone https://github.com/BuriAhmad/SmartDigest.git
 cd SmartDigest
-python -m venv .venv
-source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Start infrastructure
+### 2. Start PostgreSQL and Redis
 
 ```bash
-# PostgreSQL
 docker run -d --name smartdigest-postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=smartdigest \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=smartdigest \
   -p 5432:5432 postgres:16
 
-# Redis
 docker run -d --name smartdigest-redis \
   -p 6379:6379 redis:7
 ```
 
 ### 3. Configure environment
 
-Create a `.env` file:
-
 ```env
+# .env
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/smartdigest
 REDIS_URL=redis://localhost:6379
-GEMINI_API_KEY=your_google_ai_studio_key
-RESEND_API_KEY=your_resend_api_key
+GEMINI_API_KEY=your_key_here
+RESEND_API_KEY=your_key_here
 RESEND_FROM_EMAIL=onboarding@resend.dev
 ENV=development
 ```
 
-### 4. Run migrations and seed sources
+### 4. Migrate and seed
 
 ```bash
 alembic upgrade head
-python -m app seed-sources
+python -m app.cli seed_sources
 ```
 
-### 5. Generate your API key
+### 5. Create an API key
 
 ```bash
-python -m app create-key
+python -m app.cli create_key
+# Copy the printed key — it won't be shown again
 ```
 
-Copy the key shown — you'll need it for the dashboard.
-
-### 6. Start the servers
+### 6. Run both services
 
 ```bash
-# Terminal 1 — API server
-python -m uvicorn app.main:app --reload --port 8000
+# Terminal 1 — API
+uvicorn app.main:app --reload --port 8000
 
-# Terminal 2 — Background worker
+# Terminal 2 — Worker
 python worker.py
 ```
 
@@ -164,29 +162,67 @@ Open **http://localhost:8000** in your browser.
 
 ---
 
+## Deploying on Railway
+
+SmartDigest runs as two separate Railway services — web and worker — each with its own `railway.toml`.
+
+### Step 1 — Add services in Railway dashboard
+
+1. Create a new Railway project
+2. Add **PostgreSQL** plugin → Railway auto-injects `DATABASE_URL`
+3. Add **Redis** plugin → Railway auto-injects `REDIS_URL`
+4. Add a **GitHub service** (your repo) → **web** service
+5. Add a second **GitHub service** (same repo) → **worker** service
+
+### Step 2 — Point each service to its config
+
+| Service | Config File Path |
+|---|---|
+| Web | `services/web/railway.toml` |
+| Worker | `services/worker/railway.toml` |
+
+Set in: service → **Settings → Config File Path**
+
+### Step 3 — Set environment variables (both services)
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | Auto-injected by Railway Postgres |
+| `REDIS_URL` | Auto-injected by Railway Redis |
+| `GEMINI_API_KEY` | Your Google AI Studio key |
+| `RESEND_API_KEY` | Your Resend key |
+| `RESEND_FROM_EMAIL` | Your verified sender email |
+| `ENV` | `production` |
+
+### Step 4 — Deploy
+
+Push to GitHub. Railway will run `alembic upgrade head && python -m app.cli seed_sources` before starting, ensuring the DB is always up to date.
+
+---
+
 ## API Reference
 
-All API endpoints (except key creation and sources listing) require:
+All endpoints except `POST /api/v1/keys` and `GET /api/v1/sources` require:
+
 ```
 Authorization: Bearer <your-api-key>
 ```
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/v1/keys` | Create a new API key |
-| `DELETE` | `/api/v1/keys/{prefix}` | Revoke an API key |
+| `POST` | `/api/v1/keys` | Issue a new API key |
+| `DELETE` | `/api/v1/keys/{prefix}` | Revoke a key |
 | `GET` | `/api/v1/sources` | List available RSS sources |
 | `POST` | `/api/v1/subscriptions` | Create a subscription |
-| `GET` | `/api/v1/subscriptions` | List your subscriptions |
+| `GET` | `/api/v1/subscriptions` | List subscriptions |
 | `PATCH` | `/api/v1/subscriptions/{id}` | Update a subscription |
-| `DELETE` | `/api/v1/subscriptions/{id}` | Delete a subscription |
-| `POST` | `/api/v1/subscriptions/{id}/trigger` | Trigger pipeline (rate limited: 3/hour) |
-| `GET` | `/api/v1/digests` | List your digests |
-| `GET` | `/api/v1/digests/{id}` | Get digest detail with items |
+| `DELETE` | `/api/v1/subscriptions/{id}` | Soft-delete a subscription |
+| `POST` | `/api/v1/subscriptions/{id}/trigger` | Trigger pipeline (3/hour) |
+| `GET` | `/api/v1/digests` | List digests |
+| `GET` | `/api/v1/digests/{id}` | Digest detail with articles |
 | `GET` | `/api/v1/metrics/pipeline` | 24h pipeline stats |
-| `GET` | `/api/v1/metrics/usage` | Per-key usage stats |
 
-Interactive API docs available at **http://localhost:8000/docs**.
+Interactive docs: **`/docs`**
 
 ---
 
@@ -195,37 +231,47 @@ Interactive API docs available at **http://localhost:8000/docs**.
 ```
 SmartDigest/
 ├── app/
-│   ├── api/              # FastAPI routers (keys, sources, subscriptions, digests, metrics)
-│   ├── middleware/        # Auth middleware + rate limiter
-│   ├── models/           # SQLAlchemy ORM models
-│   ├── schemas/          # Pydantic request/response schemas
-│   ├── services/         # Business logic (fetcher, summariser, mailer, metrics, scheduler)
-│   ├── config.py         # Pydantic Settings (env vars)
-│   ├── database.py       # Async engine + session factory
-│   ├── main.py           # App factory + HTML routes
-│   └── cli.py            # Management CLI (create-key, seed-sources)
-├── templates/            # Jinja2 HTML templates (HTMX-powered dashboard)
-│   └── partials/         # HTMX partial templates
-├── alembic/              # Database migrations
-├── worker.py             # ARQ worker entrypoint
-├── requirements.txt
-└── README.md
+│   ├── api/           # FastAPI routers (keys, sources, subscriptions, digests, metrics, jobs)
+│   ├── middleware/    # Bearer token auth + rate limiting
+│   ├── models/        # SQLAlchemy ORM models
+│   ├── schemas/       # Pydantic request/response schemas
+│   ├── services/      # Business logic
+│   │   ├── fetcher.py     # Concurrent async RSS fetching
+│   │   ├── summariser.py  # Gemini batch summarisation with model fallback
+│   │   ├── mailer.py      # Resend email delivery
+│   │   ├── metrics.py     # SQL aggregates from pipeline_events
+│   │   └── scheduler.py   # ARQ job functions + cron
+│   ├── config.py      # Pydantic Settings — all env vars in one place
+│   ├── database.py    # Async engine + session factory
+│   ├── main.py        # App factory + Jinja2 HTML routes
+│   └── cli.py         # Management commands (create_key, seed_sources)
+├── templates/         # Jinja2 + HTMX dashboard
+│   └── partials/      # Live-polled metric panels
+├── alembic/           # Database migrations
+├── services/
+│   ├── web/railway.toml     # Railway web service config
+│   └── worker/railway.toml  # Railway worker service config
+├── worker.py          # ARQ worker entrypoint + cron registration
+└── requirements.txt
 ```
 
 ---
 
-## Design Decisions
+## Design Notes
 
-**Why ARQ over Celery?** ARQ is async-native, lightweight, and uses Redis directly. No broker configuration headaches, and it pairs perfectly with async SQLAlchemy.
+**Direct REST over SDK (Gemini)** — Calling the Gemini REST API directly via `httpx` removes the dependency on Google's Python SDK release cycle. The API surface used is stable, and the async HTTP client fits naturally into the event loop.
 
-**Why batch Gemini calls?** The free tier has strict RPM (requests per minute) limits. Batching all articles into one prompt uses the large context window efficiently and costs one API call regardless of article count.
+**Single-batch summarisation** — All articles for a digest are sent to Gemini in one prompt. This uses the large context window efficiently and costs one API call per digest regardless of article count — important for staying within free-tier RPM limits.
 
-**Why httpx for Gemini?** Direct REST calls avoid SDK version fragility. The Gemini REST API is stable and well-documented — no dependency on Google's Python SDK release cycle.
+**Model fallback** — Gemini free-tier quotas are per-model, not shared. The summariser tries `gemini-2.0-flash` first, then falls back through `gemini-2.5-flash` and lite variants — maximising uptime without requiring a paid plan.
 
-**Why HTMX?** Zero-build frontend. The dashboard is fully interactive (live metrics, subscription management, pipeline triggers) without a JavaScript bundler, React, or build step.
+**Decoupled worker** — The web server never blocks on pipeline work. A trigger request enqueues a job to Redis and returns `202 Accepted` immediately. The worker picks it up asynchronously.
+
+**Prefix-indexed auth** — API keys are stored as SHA-256 hashes. Auth lookups filter by the 4-character prefix first (indexed column), then do a constant-time hash comparison on the small result set — avoiding full table scans on every authenticated request.
 
 ---
 
 ## License
 
 MIT
+

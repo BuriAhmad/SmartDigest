@@ -4,7 +4,7 @@ import uuid
 from typing import List
 
 import structlog
-from arq.connections import ArqRedis, create_pool, RedisSettings
+from arq.connections import create_pool, RedisSettings
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
