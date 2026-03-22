@@ -152,21 +152,8 @@
         if (e.target === this) this.classList.add("hidden");
     });
 
-    // Get API key from localStorage or prompt
-    function getApiKey() {
-        var key = localStorage.getItem("sd_api_key");
-        if (!key) {
-            key = prompt("Enter your API key:");
-            if (key) localStorage.setItem("sd_api_key", key);
-        }
-        return key;
-    }
-
-    // Trigger pipeline
+    // Trigger pipeline — cookie-based auth, no Bearer header needed
     async function triggerPipeline(subId) {
-        var apiKey = getApiKey();
-        if (!apiKey) return;
-
         var btn = document.getElementById("trigger-btn-" + subId);
         btn.textContent = "⏳ Queuing...";
         btn.disabled = true;
@@ -174,15 +161,14 @@
         try {
             var resp = await fetch("/api/v1/subscriptions/" + subId + "/trigger", {
                 method: "POST",
-                headers: { "Authorization": "Bearer " + apiKey }
             });
             if (resp.ok) {
                 showToast("Pipeline queued successfully!", "success");
             } else if (resp.status === 429) {
                 showToast("Rate limit reached. Try again later.", "warning");
             } else if (resp.status === 401) {
-                localStorage.removeItem("sd_api_key");
-                showToast("Invalid API key. Please try again.", "error");
+                window.location.href = "/login";
+                return;
             } else {
                 var errText = await resp.text();
                 var detail = "Failed to trigger";
@@ -197,21 +183,20 @@
         }
     }
 
-    // Delete subscription
+    // Delete subscription — cookie-based auth
     async function deleteSub(subId) {
         if (!confirm("Delete this subscription?")) return;
-        var apiKey = getApiKey();
-        if (!apiKey) return;
 
         try {
             var resp = await fetch("/api/v1/subscriptions/" + subId, {
                 method: "DELETE",
-                headers: { "Authorization": "Bearer " + apiKey }
             });
             if (resp.ok) {
                 showToast("Subscription deleted.", "success");
                 var card = document.getElementById("sub-card-" + subId);
                 if (card) card.remove();
+            } else if (resp.status === 401) {
+                window.location.href = "/login";
             } else {
                 showToast("Failed to delete.", "error");
             }
@@ -220,7 +205,7 @@
         }
     }
 
-    // Handle create form submission
+    // Handle create form submission — cookie-based auth
     document.getElementById("create-form").addEventListener("submit", async function(e) {
         e.preventDefault();
         var form = e.target;
@@ -239,9 +224,6 @@
             return;
         }
 
-        var apiKey = getApiKey();
-        if (!apiKey) return;
-
         var btn = document.getElementById("create-btn");
         btn.disabled = true;
         btn.textContent = "Creating...";
@@ -249,10 +231,7 @@
         try {
             var resp = await fetch("/api/v1/subscriptions", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer " + apiKey
-                },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ topic: topic, sources: sources, email: email, schedule: schedule })
             });
 
@@ -260,6 +239,8 @@
                 document.getElementById("create-modal").classList.add("hidden");
                 showToast("Subscription created!", "success");
                 location.reload();
+            } else if (resp.status === 401) {
+                window.location.href = "/login";
             } else {
                 var data = await resp.json();
                 errDiv.textContent = data.detail || JSON.stringify(data);

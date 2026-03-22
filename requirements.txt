@@ -11,6 +11,8 @@ httpx==0.27.2
 feedparser==6.0.11
 # No Google SDK needed — Gemini called via httpx REST API directly
 resend==2.4.0
+bcrypt==4.2.0
+PyJWT==2.9.0
 structlog==24.4.0
 jinja2==3.1.4
 python-multipart==0.0.12

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.pipeline_event import PipelineEvent
 from app.models.digest import Digest
 from app.models.subscription import Subscription
-from app.models.api_key import ApiKey
+from app.models.user import User
 
 logger = structlog.get_logger()
 
@@ -95,21 +95,19 @@ async def get_pipeline_metrics(
 
 async def get_usage_metrics(
     session: AsyncSession,
-    key_id: int,
+    user_id: int,
 ) -> Dict[str, Any]:
-    """Per-key usage metrics."""
+    """Per-user usage metrics."""
 
-    # Get key info
-    key_result = await session.execute(
-        select(ApiKey).where(ApiKey.id == key_id)
+    # Get user info
+    user_result = await session.execute(
+        select(User).where(User.id == user_id)
     )
-    key = key_result.scalar_one_or_none()
+    user = user_result.scalar_one_or_none()
 
-    if not key:
+    if not user:
         return {
-            "key_prefix": "????",
-            "total_api_calls": 0,
-            "last_used_at": None,
+            "user_email": "—",
             "subscription_count": 0,
             "digest_count": 0,
         }
@@ -117,7 +115,7 @@ async def get_usage_metrics(
     # Count active subscriptions
     sub_count_result = await session.execute(
         select(sqlfunc.count(Subscription.id)).where(
-            Subscription.api_key_id == key_id,
+            Subscription.user_id == user_id,
             Subscription.active.is_(True),
         )
     )
@@ -128,7 +126,7 @@ async def get_usage_metrics(
         select(sqlfunc.count(Digest.id)).where(
             Digest.subscription_id.in_(
                 select(Subscription.id).where(
-                    Subscription.api_key_id == key_id,
+                    Subscription.user_id == user_id,
                 )
             )
         )
@@ -136,9 +134,8 @@ async def get_usage_metrics(
     digest_count = digest_count_result.scalar() or 0
 
     return {
-        "key_prefix": key.prefix,
-        "total_api_calls": key.api_call_count or 0,
-        "last_used_at": key.last_used_at.isoformat() if key.last_used_at else None,
+        "user_email": user.email,
+        "plan": user.plan,
         "subscription_count": sub_count,
         "digest_count": digest_count,
     }

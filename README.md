@@ -67,8 +67,9 @@ The API server and background worker are **fully decoupled** — they communicat
 
 ## Features
 
-- **API key authentication** — SHA-256 hashed keys with timing-safe comparison; prefix-indexed lookup avoids full table scans
-- **Subscription management** — full CRUD via REST API and dashboard UI
+- **User authentication** — email + password accounts with bcrypt hashing, JWT sessions via httpOnly cookies
+- **Plan column** — `free`/`pro` on users table for future monetisation (not enforced yet)
+- **Subscription management** — full CRUD via REST API and dashboard UI, scoped to authenticated user
 - **Async pipeline** — concurrent feed fetching, single-batch AI summarisation, non-blocking email delivery
 - **Model fallback** — if Gemini 2.0 Flash quota is exhausted, automatically falls back to 2.5 Flash, then lite models
 - **Rate limiting** — 3 pipeline triggers per hour per key (slowapi)
@@ -83,9 +84,9 @@ The API server and background worker are **fully decoupled** — they communicat
 ## Database Schema
 
 ```
-api_keys          — hashed API keys with usage counters and revocation
+users             — email + bcrypt password hash, name, plan (free/pro), login timestamps
 curated_sources   — pre-approved RSS feed list (seeded via CLI)
-subscriptions     — topic + sources + email + cron schedule per API key
+subscriptions     — topic + sources + email + cron schedule, scoped to user_id
 digests           — one record per pipeline run (status, delivered_at)
 digest_items      — one record per article (title, summary, URL, source)
 pipeline_events   — observability log: stage × status × duration_ms × error_msg
@@ -131,6 +132,7 @@ REDIS_URL=redis://localhost:6379
 GEMINI_API_KEY=your_key_here
 RESEND_API_KEY=your_key_here
 RESEND_FROM_EMAIL=onboarding@resend.dev
+JWT_SECRET=generate-a-random-secret-here
 ENV=development
 ```
 
@@ -141,11 +143,10 @@ alembic upgrade head
 python -m app.cli seed_sources
 ```
 
-### 5. Create an API key
+### 5. Create a user account
 
 ```bash
-python -m app.cli create_key
-# Copy the printed key — it won't be shown again
+python -m app.cli create_user you@example.com yourpassword "Your Name"
 ```
 
 ### 6. Run both services
@@ -192,6 +193,7 @@ Set in: service → **Settings → Config File Path**
 | `GEMINI_API_KEY` | Your Google AI Studio key |
 | `RESEND_API_KEY` | Your Resend key |
 | `RESEND_FROM_EMAIL` | Your verified sender email |
+| `JWT_SECRET` | Random secret for signing sessions |
 | `ENV` | `production` |
 
 ### Step 4 — Deploy
@@ -202,16 +204,15 @@ Push to GitHub. Railway will run `alembic upgrade head && python -m app.cli seed
 
 ## API Reference
 
-All endpoints except `POST /api/v1/keys` and `GET /api/v1/sources` require:
+Authentication is handled via httpOnly session cookies. Log in at `/login` to get a session.
 
-```
-Authorization: Bearer <your-api-key>
-```
+Public endpoints (no auth): `GET /api/v1/sources`, `POST /auth/register`, `POST /auth/login`.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/v1/keys` | Issue a new API key |
-| `DELETE` | `/api/v1/keys/{prefix}` | Revoke a key |
+| `POST` | `/auth/register` | Create a new account |
+| `POST` | `/auth/login` | Log in (sets session cookie) |
+| `POST` | `/auth/logout` | Log out (clears cookie) |
 | `GET` | `/api/v1/sources` | List available RSS sources |
 | `POST` | `/api/v1/subscriptions` | Create a subscription |
 | `GET` | `/api/v1/subscriptions` | List subscriptions |
@@ -231,8 +232,8 @@ Interactive docs: **`/docs`**
 ```
 SmartDigest/
 ├── app/
-│   ├── api/           # FastAPI routers (keys, sources, subscriptions, digests, metrics, jobs)
-│   ├── middleware/    # Bearer token auth + rate limiting
+│   ├── api/           # FastAPI routers (auth, sources, subscriptions, digests, metrics, jobs)
+│   ├── middleware/    # JWT cookie auth + rate limiting
 │   ├── models/        # SQLAlchemy ORM models
 │   ├── schemas/       # Pydantic request/response schemas
 │   ├── services/      # Business logic
@@ -267,7 +268,9 @@ SmartDigest/
 
 **Decoupled worker** — The web server never blocks on pipeline work. A trigger request enqueues a job to Redis and returns `202 Accepted` immediately. The worker picks it up asynchronously.
 
-**Prefix-indexed auth** — API keys are stored as SHA-256 hashes. Auth lookups filter by the 4-character prefix first (indexed column), then do a constant-time hash comparison on the small result set — avoiding full table scans on every authenticated request.
+**Cookie-based JWT auth** — The app is browser-first (Jinja2 + HTMX), so httpOnly cookies are the natural auth mechanism. They’re sent automatically on every request, eliminating the need for JavaScript to inject Authorization headers. `SameSite=Lax` prevents CSRF on navigations.
+
+**Plan column for future monetisation** — A `plan` field (`free`/`pro`) lives on the `users` table from day one. It’s not enforced yet, but it’s ready for gating features (e.g. more sources, higher trigger rate limits) without a schema migration.
 
 ---
 

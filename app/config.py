@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
+    JWT_SECRET: str = "dev-secret-change-in-production-abc123"
     ENV: str = "development"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

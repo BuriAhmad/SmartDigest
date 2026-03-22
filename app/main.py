@@ -16,7 +16,7 @@ from starlette.responses import PlainTextResponse, RedirectResponse
 
 from app.config import get_settings
 from app.database import get_db
-from app.middleware.auth import ApiKeyAuthMiddleware
+from app.middleware.auth import SessionAuthMiddleware
 from app.middleware.rate_limit import limiter
 
 
@@ -74,21 +74,21 @@ def create_app() -> FastAPI:
     )
 
     # --- Middleware ---
-    application.add_middleware(ApiKeyAuthMiddleware)
+    application.add_middleware(SessionAuthMiddleware)
 
     # --- Rate Limiting ---
     application.state.limiter = limiter
     application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     # --- API Routers ---
-    from app.api.keys import router as keys_router
+    from app.api.auth import router as auth_router
     from app.api.sources import router as sources_router
     from app.api.subscriptions import router as subscriptions_router
     from app.api.digests import router as digests_router
     from app.api.jobs import router as jobs_router
     from app.api.metrics import router as metrics_router
 
-    application.include_router(keys_router, prefix="/api/v1")
+    application.include_router(auth_router)
     application.include_router(sources_router, prefix="/api/v1")
     application.include_router(subscriptions_router, prefix="/api/v1")
     application.include_router(digests_router, prefix="/api/v1")
@@ -97,6 +97,16 @@ def create_app() -> FastAPI:
 
     # --- HTML Routes ---
 
+    @application.get("/login", response_class=HTMLResponse)
+    async def login_page(request: Request):
+        """Login / register page."""
+        # If already logged in, redirect to dashboard
+        if hasattr(request.state, "user_id"):
+            return RedirectResponse(url="/", status_code=303)
+        return templates.TemplateResponse("login.html", {
+            "request": request,
+        })
+
     @application.get("/", response_class=HTMLResponse)
     async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
         """Main dashboard — shows subscriptions, digests, pipeline health."""
@@ -104,13 +114,16 @@ def create_app() -> FastAPI:
         from app.models.digest import Digest
         from app.models.curated_source import CuratedSource
 
-        # Get key_prefix from cookie or empty
-        key_prefix = request.cookies.get("sd_key_prefix", "")
+        user_id = request.state.user_id
+        user_email = request.state.user_email
 
-        # Load all active subscriptions (show all in dev since there's one user)
+        # Load user's active subscriptions
         subs_result = await db.execute(
             select(Subscription)
-            .where(Subscription.active.is_(True))
+            .where(
+                Subscription.user_id == user_id,
+                Subscription.active.is_(True),
+            )
             .order_by(Subscription.created_at.desc())
         )
         subscriptions = subs_result.scalars().all()
@@ -130,6 +143,7 @@ def create_app() -> FastAPI:
             )
             .join(Subscription, Digest.subscription_id == Subscription.id)
             .outerjoin(DigestItem, DigestItem.digest_id == Digest.id)
+            .where(Subscription.user_id == user_id)
             .group_by(
                 Digest.id,
                 Digest.subscription_id,
@@ -166,18 +180,10 @@ def create_app() -> FastAPI:
 
         return templates.TemplateResponse("dashboard.html", {
             "request": request,
-            "key_prefix": key_prefix,
+            "user_email": user_email,
             "subscriptions": subscriptions,
             "digests": digests,
             "sources": sources,
-        })
-
-    @application.get("/setup", response_class=HTMLResponse)
-    async def setup_page(request: Request):
-        """API key setup page."""
-        return templates.TemplateResponse("setup.html", {
-            "request": request,
-            "key_prefix": "",
         })
 
     @application.get("/dashboard/metrics", response_class=HTMLResponse)
@@ -237,7 +243,7 @@ def create_app() -> FastAPI:
 
         return templates.TemplateResponse("digest_detail.html", {
             "request": request,
-            "key_prefix": request.cookies.get("sd_key_prefix", ""),
+            "user_email": getattr(request.state, "user_email", ""),
             "digest": digest,
             "items": items,
         })

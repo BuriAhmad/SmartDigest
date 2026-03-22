@@ -25,8 +25,8 @@ async def list_digests(
     db: AsyncSession = Depends(get_db),
 ) -> list:
     """List digests for the authenticated user's subscriptions."""
-    key_id = getattr(request.state, "owner_key_id", None)
-    if key_id is None:
+    user_id = getattr(request.state, "user_id", None)
+    if user_id is None:
         return []
 
     # Get digests via subscription ownership
@@ -42,7 +42,7 @@ async def list_digests(
         )
         .join(Subscription, Digest.subscription_id == Subscription.id)
         .outerjoin(DigestItem, DigestItem.digest_id == Digest.id)
-        .where(Subscription.api_key_id == key_id)
+        .where(Subscription.user_id == user_id)
         .group_by(
             Digest.id,
             Digest.subscription_id,

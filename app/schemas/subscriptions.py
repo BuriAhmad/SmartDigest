@@ -107,7 +107,7 @@ class SubscriptionResponse(BaseModel):
     """Response body for a subscription."""
 
     id: int
-    api_key_id: int
+    user_id: int
     topic: str
     sources: List[str]
     email: str

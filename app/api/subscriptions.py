@@ -31,7 +31,7 @@ async def create_subscription(
 ) -> SubscriptionResponse:
     """Create a new subscription."""
     sub = Subscription(
-        api_key_id=request.state.owner_key_id,
+        user_id=request.state.user_id,
         topic=payload.topic,
         sources=payload.sources,
         email=payload.email,
@@ -49,10 +49,10 @@ async def list_subscriptions(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> List[SubscriptionResponse]:
-    """List all active subscriptions for the authenticated key owner."""
+    """List all active subscriptions for the authenticated user."""
     result = await db.execute(
         select(Subscription).where(
-            Subscription.api_key_id == request.state.owner_key_id,
+            Subscription.user_id == request.state.user_id,
             Subscription.active.is_(True),
         ).order_by(Subscription.created_at.desc())
     )
@@ -143,7 +143,7 @@ async def _get_owned_subscription(
     result = await db.execute(
         select(Subscription).where(
             Subscription.id == subscription_id,
-            Subscription.api_key_id == request.state.owner_key_id,
+            Subscription.user_id == request.state.user_id,
         )
     )
     sub = result.scalar_one_or_none()

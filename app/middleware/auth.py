@@ -1,45 +1,42 @@
-"""API key authentication middleware.
+"""Session authentication middleware.
 
-Extracts Bearer token, SHA-256 hashes it, and validates against the DB.
-Sets request.state.owner_key_id and request.state.key_prefix on success.
+Reads the sd_session httpOnly cookie, verifies the JWT, and sets
+request.state.user_id and request.state.user_email on success.
+Unauthenticated browser requests are redirected to /login.
+Unauthenticated API requests receive a 401 JSON response.
 """
 
-import hashlib
-import hmac
-from datetime import datetime, timezone
-
 import structlog
-from sqlalchemy import select, update
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, RedirectResponse, Response
 
-from app.database import async_session
-from app.models.api_key import ApiKey
+from app.services.auth import verify_session_token
 
 logger = structlog.get_logger()
 
-# Paths that do NOT require authentication
+COOKIE_NAME = "sd_session"
+
+# Paths that never require authentication
 EXCLUDED_PATHS = {
-    ("POST", "/api/v1/keys"),
-    ("GET", "/"),
-    ("GET", "/setup"),
-    ("GET", "/dashboard/metrics"),
+    ("GET", "/login"),
+    ("POST", "/auth/login"),
+    ("POST", "/auth/register"),
+    ("POST", "/auth/logout"),
     ("GET", "/api/v1/sources"),
 }
 
-# Prefixes that are always excluded (static files, docs, HTML digest pages)
+# Prefixes that are always excluded (static files, docs)
 EXCLUDED_PREFIXES = (
     "/docs",
     "/openapi.json",
     "/redoc",
     "/static",
-    "/digests/",
 )
 
 
-class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
-    """Validates Bearer token on every request (except excluded paths)."""
+class SessionAuthMiddleware(BaseHTTPMiddleware):
+    """Validates JWT session cookie on every request (except excluded paths)."""
 
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
@@ -55,63 +52,28 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
         if path.startswith(EXCLUDED_PREFIXES):
             return await call_next(request)
 
-        # Extract Bearer token
-        auth_header = request.headers.get("Authorization")
-        if not auth_header:
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Authorization header required"},
-            )
+        # Read session cookie
+        token = request.cookies.get(COOKIE_NAME)
+        if not token:
+            return self._unauthenticated(request)
 
-        parts = auth_header.split(" ", 1)
-        if len(parts) != 2 or parts[0] != "Bearer":
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Authorization header must be: Bearer <key>"},
-            )
-
-        raw_key = parts[1]
-        key_prefix = raw_key[:4]
-
-        # Hash the incoming key
-        incoming_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-
-        # Look up by prefix first (indexed), then compare full hash — avoids full table scan
-        async with async_session() as session:
-            result = await session.execute(
-                select(ApiKey).where(
-                    ApiKey.prefix == key_prefix,
-                    ApiKey.revoked_at.is_(None),
-                )
-            )
-            keys = result.scalars().all()
-
-            matched_key = None
-            for key in keys:
-                if hmac.compare_digest(key.key_hash, incoming_hash):
-                    matched_key = key
-                    break
-
-            if matched_key is None:
-                logger.warning("auth.failed", path=path)
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": "Invalid or revoked API key"},
-                )
-
-            # Update last_used_at and api_call_count
-            await session.execute(
-                update(ApiKey)
-                .where(ApiKey.id == matched_key.id)
-                .values(
-                    last_used_at=datetime.now(timezone.utc),
-                    api_call_count=ApiKey.api_call_count + 1,
-                )
-            )
-            await session.commit()
+        # Verify JWT
+        payload = verify_session_token(token)
+        if payload is None:
+            return self._unauthenticated(request)
 
         # Set state for downstream handlers
-        request.state.owner_key_id = matched_key.id
-        request.state.key_prefix = matched_key.prefix
+        request.state.user_id = payload["sub"]
+        request.state.user_email = payload["email"]
 
         return await call_next(request)
+
+    @staticmethod
+    def _unauthenticated(request: Request) -> Response:
+        """Return 401 JSON for API calls, redirect to /login for browser requests."""
+        if request.url.path.startswith("/api/"):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Authentication required"},
+            )
+        return RedirectResponse(url="/login", status_code=303)

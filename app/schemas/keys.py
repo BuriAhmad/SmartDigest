@@ -1,13 +1,5 @@
-"""Pydantic schemas for API key endpoints."""
+"""API key schemas — REMOVED.
 
-from datetime import datetime
-
-from pydantic import BaseModel
-
-
-class KeyCreateResponse(BaseModel):
-    """Returned once on key creation — plaintext key is never shown again."""
-
-    key: str
-    prefix: str
-    created_at: datetime
+Authentication is now handled via user accounts.
+See app/schemas/auth.py.
+"""

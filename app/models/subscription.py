@@ -13,8 +13,8 @@ class Subscription(Base):
     __tablename__ = "subscriptions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    api_key_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("api_keys.id"), nullable=False
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False
     )
     topic: Mapped[str] = mapped_column(String(200), nullable=False)
     sources: Mapped[list] = mapped_column(JSONB, nullable=False)
@@ -29,8 +29,8 @@ class Subscription(Base):
 
     __table_args__ = (
         Index(
-            "idx_subscriptions_api_key",
-            "api_key_id",
+            "idx_subscriptions_user",
+            "user_id",
             postgresql_where=(active == True),  # noqa: E712
         ),
     )

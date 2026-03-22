@@ -1,21 +1,20 @@
 """CLI utilities for SmartDigest.
 
 Usage:
-    python -m app.cli create_key
+    python -m app.cli create_user <email> <password> <name>
     python -m app.cli seed_sources
 """
 
 import asyncio
-import hashlib
-import secrets
 import sys
 
 import structlog
 
 from app.config import get_settings
 from app.database import async_session
-from app.models.api_key import ApiKey
+from app.models.user import User
 from app.models.curated_source import CuratedSource
+from app.services.auth import hash_password
 
 logger = structlog.get_logger()
 
@@ -34,21 +33,29 @@ SEED_SOURCES = [
 ]
 
 
-async def _create_key() -> None:
-    """Generate an API key, store its hash, and print the plaintext."""
-    raw_key = secrets.token_hex(32)
-    prefix = raw_key[:4]
-    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+async def _create_user(email: str, password: str, name: str) -> None:
+    """Create a new user account from the CLI."""
+    from sqlalchemy import select
 
     async with async_session() as session:
-        api_key = ApiKey(prefix=prefix, key_hash=key_hash)
-        session.add(api_key)
+        # Check if user already exists
+        result = await session.execute(select(User).where(User.email == email))
+        if result.scalar_one_or_none() is not None:
+            print(f"\n❌ User with email {email} already exists.\n")
+            return
+
+        user = User(
+            email=email,
+            password_hash=hash_password(password),
+            name=name,
+        )
+        session.add(user)
         await session.commit()
 
-    print(f"\n✅ API Key created!")
-    print(f"   Key:    {raw_key}")
-    print(f"   Prefix: {prefix}")
-    print(f"\n⚠  Save this key — it will not be shown again.\n")
+    print(f"\n✅ User created!")
+    print(f"   Email: {email}")
+    print(f"   Name:  {name}")
+    print(f"\n   Log in at /login with your email and password.\n")
 
 
 async def _seed_sources() -> None:
@@ -75,14 +82,20 @@ def main() -> None:
     if len(sys.argv) < 2:
         print("Usage: python -m app.cli <command>")
         print("Commands:")
-        print("  create_key    — Generate a new API key")
-        print("  seed_sources  — Seed curated RSS sources")
+        print("  create_user <email> <password> <name>  — Create a user account")
+        print("  seed_sources                           — Seed curated RSS sources")
         sys.exit(1)
 
     command = sys.argv[1]
 
-    if command == "create_key":
-        asyncio.run(_create_key())
+    if command == "create_user":
+        if len(sys.argv) < 5:
+            print("Usage: python -m app.cli create_user <email> <password> <name>")
+            sys.exit(1)
+        email = sys.argv[2]
+        password = sys.argv[3]
+        name = " ".join(sys.argv[4:])
+        asyncio.run(_create_user(email, password, name))
     elif command == "seed_sources":
         asyncio.run(_seed_sources())
     else:

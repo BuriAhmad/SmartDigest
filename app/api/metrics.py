@@ -28,14 +28,12 @@ async def usage_metrics(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Per-key usage metrics."""
-    key_id = getattr(request.state, "owner_key_id", None)
-    if key_id is None:
+    """Per-user usage metrics."""
+    user_id = getattr(request.state, "user_id", None)
+    if user_id is None:
         return {
-            "key_prefix": "????",
-            "total_api_calls": 0,
-            "last_used_at": None,
+            "user_email": "—",
             "subscription_count": 0,
             "digest_count": 0,
         }
-    return await get_usage_metrics(db, key_id)
+    return await get_usage_metrics(db, user_id)
