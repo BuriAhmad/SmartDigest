@@ -116,15 +116,10 @@ async def trigger_pipeline(
         raise HTTPException(status_code=404, detail="Subscription is inactive")
 
     settings = get_settings()
-    redis_url = settings.REDIS_URL.replace("redis://", "")
-    parts = redis_url.split(":")
-    host = parts[0] if parts[0] else "localhost"
-    port = int(parts[1]) if len(parts) > 1 else 6379
-
     job_id = f"arq:job:{uuid.uuid4().hex[:12]}"
 
     try:
-        redis = await create_pool(RedisSettings(host=host, port=port))
+        redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
         job = await redis.enqueue_job(
             "run_pipeline",
             subscription_id,

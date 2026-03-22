@@ -184,8 +184,10 @@
                 localStorage.removeItem("sd_api_key");
                 showToast("Invalid API key. Please try again.", "error");
             } else {
-                var data = await resp.json();
-                showToast(data.detail || "Failed to trigger", "error");
+                var errText = await resp.text();
+                var detail = "Failed to trigger";
+                try { detail = JSON.parse(errText).detail || detail; } catch(_) {}
+                showToast(detail, "error");
             }
         } catch(ex) {
             showToast("Network error: " + ex.message, "error");
