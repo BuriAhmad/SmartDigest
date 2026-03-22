@@ -216,13 +216,21 @@ def create_app() -> FastAPI:
         request: Request,
         db: AsyncSession = Depends(get_db),
     ):
-        """Digest detail page — shows all items with summaries."""
+        """Digest detail page — only accessible to the owning user."""
         from app.models.digest import Digest
         from app.models.digest_item import DigestItem
         from app.models.subscription import Subscription
 
+        user_id = request.state.user_id
+
+        # Enforce ownership: join through subscription
         result = await db.execute(
-            select(Digest).where(Digest.id == digest_id)
+            select(Digest)
+            .join(Subscription, Digest.subscription_id == Subscription.id)
+            .where(
+                Digest.id == digest_id,
+                Subscription.user_id == user_id,
+            )
         )
         digest = result.scalar_one_or_none()
         if digest is None:

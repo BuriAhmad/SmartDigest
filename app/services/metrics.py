@@ -24,28 +24,33 @@ async def get_pipeline_metrics(
 ) -> Dict[str, Any]:
     """Aggregate pipeline_events for the last N hours.
 
-    Returns dict with: total_jobs, by_status, stage_avg_ms, last_error.
+    Counts by the 'deliver' stage only — there is exactly one deliver event
+    per digest run, so this gives a true per-digest count rather than
+    inflating by the number of stages (fetch + summarise + deliver = 3×).
     """
     since = datetime.now(timezone.utc) - timedelta(hours=period_hours)
 
-    # Total completed events (success + failed)
+    # Total pipeline runs = total deliver events (one per digest)
     total_result = await session.execute(
         select(sqlfunc.count(PipelineEvent.id)).where(
             PipelineEvent.created_at >= since,
+            PipelineEvent.stage == "deliver",
             PipelineEvent.status.in_(["success", "failed"]),
         )
     )
     total_jobs = total_result.scalar() or 0
 
-    # By status
+    # Delivered successfully
     done_result = await session.execute(
         select(sqlfunc.count(PipelineEvent.id)).where(
             PipelineEvent.created_at >= since,
+            PipelineEvent.stage == "deliver",
             PipelineEvent.status == "success",
         )
     )
     done = done_result.scalar() or 0
 
+    # Failed at any stage (fetch, summarise, or deliver)
     failed_result = await session.execute(
         select(sqlfunc.count(PipelineEvent.id)).where(
             PipelineEvent.created_at >= since,

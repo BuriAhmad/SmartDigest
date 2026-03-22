@@ -76,9 +76,17 @@ async def get_digest(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Get a single digest with its items."""
+    """Get a single digest with its items. Only accessible to the owning user."""
+    user_id = getattr(request.state, "user_id", None)
+
+    # Join through subscription to enforce ownership
     result = await db.execute(
-        select(Digest).where(Digest.id == digest_id)
+        select(Digest)
+        .join(Subscription, Digest.subscription_id == Subscription.id)
+        .where(
+            Digest.id == digest_id,
+            Subscription.user_id == user_id,
+        )
     )
     digest = result.scalar_one_or_none()
 
