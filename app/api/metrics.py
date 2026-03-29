@@ -33,7 +33,7 @@ async def usage_metrics(
     if user_id is None:
         return {
             "user_email": "—",
-            "subscription_count": 0,
+            "briefing_count": 0,
             "digest_count": 0,
         }
     return await get_usage_metrics(db, user_id)

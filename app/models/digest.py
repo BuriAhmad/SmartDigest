@@ -13,8 +13,8 @@ class Digest(Base):
     __tablename__ = "digests"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    subscription_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("subscriptions.id"), nullable=False
+    briefing_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("briefings.id"), nullable=False
     )
     status: Mapped[str] = mapped_column(
         String(20), default="queued", server_default="queued"
@@ -29,5 +29,5 @@ class Digest(Base):
     items = relationship("DigestItem", back_populates="digest", lazy="selectin")
 
     __table_args__ = (
-        Index("idx_digests_subscription", "subscription_id", created_at.desc()),
+        Index("idx_digests_briefing", "briefing_id", created_at.desc()),
     )

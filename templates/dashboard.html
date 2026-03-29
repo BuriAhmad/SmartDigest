@@ -5,7 +5,7 @@
 {% block nav_actions %}
 <button onclick="document.getElementById('create-modal').classList.remove('hidden')"
     class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 font-medium transition-colors">
-    + New Subscription
+    + New Briefing
 </button>
 {% endblock %}
 
@@ -15,20 +15,20 @@
     <!-- Left panel: 3/5 -->
     <div class="lg:col-span-3 space-y-6">
 
-        <!-- Subscription cards -->
+        <!-- Briefing cards -->
         <div>
-            <h2 class="text-lg font-semibold text-gray-800 mb-3">Subscriptions</h2>
-            <div id="subscription-list" class="space-y-3">
-                {% if subscriptions %}
-                    {% for sub in subscriptions %}
-                        {% include "partials/subscription_card.html" %}
+            <h2 class="text-lg font-semibold text-gray-800 mb-3">Briefings</h2>
+            <div id="briefing-list" class="space-y-3">
+                {% if briefings %}
+                    {% for briefing in briefings %}
+                        {% include "partials/briefing_card.html" %}
                     {% endfor %}
                 {% else %}
                     <div class="bg-white rounded-lg border border-gray-200 p-8 text-center">
-                        <p class="text-gray-500">No subscriptions yet.</p>
+                        <p class="text-gray-500">No briefings yet.</p>
                         <button onclick="document.getElementById('create-modal').classList.remove('hidden')"
                             class="mt-3 text-blue-600 hover:text-blue-700 text-sm font-medium">
-                            Add your first topic →
+                            Create your first briefing →
                         </button>
                     </div>
                 {% endif %}
@@ -83,21 +83,58 @@
     </div>
 </div>
 
-<!-- Create subscription modal -->
+<!-- Create briefing modal -->
 <div id="create-modal" class="hidden fixed inset-0 z-40 flex items-center justify-center modal-backdrop">
-    <div class="bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-lg mx-4 p-6" onclick="event.stopPropagation()">
+    <div class="bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-lg mx-4 p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
         <div class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-semibold text-gray-800">New Subscription</h3>
+            <h3 class="text-lg font-semibold text-gray-800">New Briefing</h3>
             <button onclick="document.getElementById('create-modal').classList.add('hidden')"
                 class="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
         </div>
 
         <form id="create-form" class="space-y-4">
-            <!-- Topic -->
+            <!-- Topic Label -->
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Topic Label</label>
-                <input type="text" name="topic" required placeholder="e.g. AI Research"
+                <input type="text" name="topic" required placeholder="e.g. AI in Healthcare"
                     class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <p class="text-xs text-gray-400 mt-1">Short name for this briefing</p>
+            </div>
+
+            <!-- Intent Description -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">What do you want to learn or track?</label>
+                <textarea name="intent_description" required rows="3"
+                    placeholder="e.g. I want to track practical applications of LLMs in clinical healthcare settings, especially NLP for medical records and diagnostic AI tools..."
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"></textarea>
+                <p class="text-xs text-gray-400 mt-1">Be specific — this guides what articles are selected and how they're summarised (min 20 chars)</p>
+            </div>
+
+            <!-- Keywords -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Keywords</label>
+                <input type="text" name="keywords" required
+                    placeholder="LLM, clinical NLP, medical AI, diagnostics"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <p class="text-xs text-gray-400 mt-1">Comma-separated keywords for filtering articles</p>
+            </div>
+
+            <!-- Exclusion Keywords (optional) -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Exclude these topics <span class="text-gray-400">(optional)</span></label>
+                <input type="text" name="exclusion_keywords"
+                    placeholder="e.g. cryptocurrency, gaming, social media"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <p class="text-xs text-gray-400 mt-1">Comma-separated topics to skip entirely</p>
+            </div>
+
+            <!-- Example Articles (optional) -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Example of a useful article <span class="text-gray-400">(optional)</span></label>
+                <input type="text" name="example_articles"
+                    placeholder="e.g. How GPT-4 is transforming radiology workflows"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <p class="text-xs text-gray-400 mt-1">A title or URL of an article you'd want in this briefing</p>
             </div>
 
             <!-- Sources (checkboxes) -->
@@ -106,9 +143,12 @@
                 <div class="max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-3 space-y-2">
                     {% for source in sources %}
                     <label class="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 p-1 rounded">
-                        <input type="checkbox" name="sources" value="{{ source.rss_url }}"
+                        <input type="checkbox" name="sources" value="{{ source.url }}"
                             class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
                         <span>{{ source.name }}</span>
+                        {% if source.category %}
+                        <span class="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{{ source.category }}</span>
+                        {% endif %}
                     </label>
                     {% endfor %}
                 </div>
@@ -140,7 +180,7 @@
             <!-- Submit -->
             <button type="submit" id="create-btn"
                 class="w-full bg-blue-600 text-white py-2.5 px-4 rounded-lg hover:bg-blue-700 font-medium text-sm transition-colors">
-                Create Subscription
+                Create Briefing
             </button>
         </form>
     </div>
@@ -152,14 +192,14 @@
         if (e.target === this) this.classList.add("hidden");
     });
 
-    // Trigger pipeline — cookie-based auth, no Bearer header needed
-    async function triggerPipeline(subId) {
-        var btn = document.getElementById("trigger-btn-" + subId);
+    // Trigger pipeline — cookie-based auth
+    async function triggerPipeline(briefingId) {
+        var btn = document.getElementById("trigger-btn-" + briefingId);
         btn.textContent = "⏳ Queuing...";
         btn.disabled = true;
 
         try {
-            var resp = await fetch("/api/v1/subscriptions/" + subId + "/trigger", {
+            var resp = await fetch("/api/v1/briefings/" + briefingId + "/trigger", {
                 method: "POST",
             });
             if (resp.ok) {
@@ -183,17 +223,17 @@
         }
     }
 
-    // Delete subscription — cookie-based auth
-    async function deleteSub(subId) {
-        if (!confirm("Delete this subscription?")) return;
+    // Delete briefing — cookie-based auth
+    async function deleteBriefing(briefingId) {
+        if (!confirm("Delete this briefing?")) return;
 
         try {
-            var resp = await fetch("/api/v1/subscriptions/" + subId, {
+            var resp = await fetch("/api/v1/briefings/" + briefingId, {
                 method: "DELETE",
             });
             if (resp.ok) {
-                showToast("Subscription deleted.", "success");
-                var card = document.getElementById("sub-card-" + subId);
+                showToast("Briefing deleted.", "success");
+                var card = document.getElementById("briefing-card-" + briefingId);
                 if (card) card.remove();
             } else if (resp.status === 401) {
                 window.location.href = "/login";
@@ -205,7 +245,7 @@
         }
     }
 
-    // Handle create form submission — cookie-based auth
+    // Handle create form submission
     document.getElementById("create-form").addEventListener("submit", async function(e) {
         e.preventDefault();
         var form = e.target;
@@ -213,13 +253,32 @@
         errDiv.classList.add("hidden");
 
         var topic = form.topic.value.trim();
+        var intentDescription = form.intent_description.value.trim();
+        var keywordsRaw = form.keywords.value.trim();
         var email = form.email.value.trim();
         var schedule = form.schedule.value;
+
         var checked = form.querySelectorAll('input[name="sources"]:checked');
         var sources = Array.from(checked).map(function(c) { return c.value; });
 
-        if (!topic || !email || sources.length === 0) {
-            errDiv.textContent = "Please fill in all fields and select at least one source.";
+        // Parse comma-separated keywords
+        var keywords = keywordsRaw.split(",").map(function(k) { return k.trim(); }).filter(Boolean);
+
+        // Parse optional fields
+        var exclusionRaw = (form.exclusion_keywords.value || "").trim();
+        var exclusionKeywords = exclusionRaw ? exclusionRaw.split(",").map(function(k) { return k.trim(); }).filter(Boolean) : [];
+
+        var exampleRaw = (form.example_articles.value || "").trim();
+        var exampleArticles = exampleRaw ? [exampleRaw] : [];
+
+        if (!topic || !intentDescription || keywords.length === 0 || !email || sources.length === 0) {
+            errDiv.textContent = "Please fill in Topic, Intent, Keywords, Email, and select at least one source.";
+            errDiv.classList.remove("hidden");
+            return;
+        }
+
+        if (intentDescription.length < 20) {
+            errDiv.textContent = "Intent description must be at least 20 characters. Be specific about what you want to track.";
             errDiv.classList.remove("hidden");
             return;
         }
@@ -229,15 +288,24 @@
         btn.textContent = "Creating...";
 
         try {
-            var resp = await fetch("/api/v1/subscriptions", {
+            var resp = await fetch("/api/v1/briefings", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ topic: topic, sources: sources, email: email, schedule: schedule })
+                body: JSON.stringify({
+                    topic: topic,
+                    intent_description: intentDescription,
+                    keywords: keywords,
+                    sources: sources,
+                    email: email,
+                    schedule: schedule,
+                    exclusion_keywords: exclusionKeywords.length > 0 ? exclusionKeywords : null,
+                    example_articles: exampleArticles.length > 0 ? exampleArticles : null,
+                })
             });
 
             if (resp.ok) {
                 document.getElementById("create-modal").classList.add("hidden");
-                showToast("Subscription created!", "success");
+                showToast("Briefing created!", "success");
                 location.reload();
             } else if (resp.status === 401) {
                 window.location.href = "/login";
@@ -251,7 +319,7 @@
             errDiv.classList.remove("hidden");
         } finally {
             btn.disabled = false;
-            btn.textContent = "Create Subscription";
+            btn.textContent = "Create Briefing";
         }
     });
 </script>

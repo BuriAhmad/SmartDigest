@@ -35,15 +35,48 @@
             <div class="border border-gray-100 rounded-lg p-4">
                 <div class="flex justify-between items-start mb-2">
                     <a href="{{ item.item_url or '#' }}" target="_blank"
-                        class="font-medium text-blue-600 hover:text-blue-700">
+                        class="font-medium text-blue-600 hover:text-blue-700 flex-1">
                         {{ item.title or "Untitled" }}
                     </a>
-                    {% if item.fetch_duration_ms %}
-                    <span class="text-xs text-gray-400 font-mono">{{ item.fetch_duration_ms }}ms</span>
-                    {% endif %}
+                    <div class="flex items-center gap-2 ml-3 flex-shrink-0">
+                        {# Relevance score badge #}
+                        {% if item.llm_relevance_score is not none %}
+                            {% if item.llm_relevance_score >= 8 %}
+                            <span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-medium" title="LLM relevance: {{ item.llm_relevance_score }}/10">⭐ {{ item.llm_relevance_score }}</span>
+                            {% elif item.llm_relevance_score >= 6 %}
+                            <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium" title="LLM relevance: {{ item.llm_relevance_score }}/10">✓ {{ item.llm_relevance_score }}</span>
+                            {% else %}
+                            <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium" title="LLM relevance: {{ item.llm_relevance_score }}/10">{{ item.llm_relevance_score }}</span>
+                            {% endif %}
+                        {% endif %}
+                        {% if item.fetch_duration_ms %}
+                        <span class="text-xs text-gray-400 font-mono">{{ item.fetch_duration_ms }}ms</span>
+                        {% endif %}
+                    </div>
                 </div>
+
                 <div class="text-xs text-gray-400 mb-2">{{ item.source_url or "" | replace("https://", "") | truncate(40) }}</div>
+
+                {# Heuristic score bar #}
+                {% if item.heuristic_score is not none %}
+                <div class="mb-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-gray-400 whitespace-nowrap">Keyword match</span>
+                        <div class="flex-1 bg-gray-100 rounded-full h-1.5">
+                            {% set hw = (item.heuristic_score * 100) | int %}
+                            <div class="bg-indigo-400 h-1.5 rounded-full" style="width: {{ [hw, 100] | min }}%"></div>
+                        </div>
+                        <span class="text-xs text-gray-400 font-mono">{{ "%.0f" | format(item.heuristic_score * 100) }}%</span>
+                    </div>
+                </div>
+                {% endif %}
+
                 <p class="text-sm text-gray-700">{{ item.summary or "[Summary coming soon]" }}</p>
+
+                {# LLM relevance reason #}
+                {% if item.llm_relevance_reason %}
+                <p class="text-xs text-gray-400 mt-2 italic">💡 {{ item.llm_relevance_reason }}</p>
+                {% endif %}
             </div>
             {% endfor %}
         </div>

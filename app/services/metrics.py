@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.pipeline_event import PipelineEvent
 from app.models.digest import Digest
-from app.models.subscription import Subscription
+from app.models.briefing import Briefing
 from app.models.user import User
 
 logger = structlog.get_logger()
@@ -113,25 +113,25 @@ async def get_usage_metrics(
     if not user:
         return {
             "user_email": "—",
-            "subscription_count": 0,
+            "briefing_count": 0,
             "digest_count": 0,
         }
 
-    # Count active subscriptions
-    sub_count_result = await session.execute(
-        select(sqlfunc.count(Subscription.id)).where(
-            Subscription.user_id == user_id,
-            Subscription.active.is_(True),
+    # Count active briefings
+    briefing_count_result = await session.execute(
+        select(sqlfunc.count(Briefing.id)).where(
+            Briefing.user_id == user_id,
+            Briefing.active.is_(True),
         )
     )
-    sub_count = sub_count_result.scalar() or 0
+    briefing_count = briefing_count_result.scalar() or 0
 
-    # Count digests from these subscriptions
+    # Count digests from these briefings
     digest_count_result = await session.execute(
         select(sqlfunc.count(Digest.id)).where(
-            Digest.subscription_id.in_(
-                select(Subscription.id).where(
-                    Subscription.user_id == user_id,
+            Digest.briefing_id.in_(
+                select(Briefing.id).where(
+                    Briefing.user_id == user_id,
                 )
             )
         )
@@ -141,6 +141,6 @@ async def get_usage_metrics(
     return {
         "user_email": user.email,
         "plan": user.plan,
-        "subscription_count": sub_count,
+        "briefing_count": briefing_count,
         "digest_count": digest_count,
     }

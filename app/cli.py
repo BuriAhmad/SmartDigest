@@ -18,18 +18,88 @@ from app.services.auth import hash_password
 
 logger = structlog.get_logger()
 
-# Curated RSS sources from the spec (Section D10)
+# Curated sources with metadata for per-source scraping
 SEED_SOURCES = [
-    ("Hacker News", "https://news.ycombinator.com/rss"),
-    ("TechCrunch", "https://techcrunch.com/feed/"),
-    ("MIT Tech Review", "https://www.technologyreview.com/feed/"),
-    ("The Verge", "https://www.theverge.com/rss/index.xml"),
-    ("Wired", "https://www.wired.com/feed/rss"),
-    ("Ars Technica", "https://feeds.arstechnica.com/arstechnica/index"),
-    ("VentureBeat", "https://venturebeat.com/feed/"),
-    ("InfoQ", "https://www.infoq.com/feed/"),
-    ("Dev.to", "https://dev.to/feed"),
-    ("Simon Willison", "https://simonwillison.net/atom/everything/"),
+    {
+        "name": "Hacker News",
+        "url": "https://news.ycombinator.com/rss",
+        "source_type": "rss",
+        "category": "tech",
+        "tags": ["startups", "programming", "tech", "open-source", "AI"],
+        "description": "Community-curated tech news. Broad coverage of programming, startups, AI, and technology.",
+    },
+    {
+        "name": "TechCrunch",
+        "url": "https://techcrunch.com/feed/",
+        "source_type": "rss",
+        "category": "tech",
+        "tags": ["startups", "funding", "venture-capital", "product-launches", "AI"],
+        "description": "Startup and technology news. Strong on funding rounds, product launches, and industry trends.",
+    },
+    {
+        "name": "MIT Tech Review",
+        "url": "https://www.technologyreview.com/feed/",
+        "source_type": "rss",
+        "category": "science-tech",
+        "tags": ["AI", "biotech", "climate", "research", "deep-tech"],
+        "description": "In-depth technology journalism. Focuses on emerging tech, AI research, and scientific breakthroughs.",
+    },
+    {
+        "name": "The Verge",
+        "url": "https://www.theverge.com/rss/index.xml",
+        "source_type": "rss",
+        "category": "tech",
+        "tags": ["consumer-tech", "gadgets", "policy", "social-media", "AI"],
+        "description": "Consumer technology and digital culture. Covers gadgets, platforms, and tech policy.",
+    },
+    {
+        "name": "Wired",
+        "url": "https://www.wired.com/feed/rss",
+        "source_type": "rss",
+        "category": "tech",
+        "tags": ["science", "culture", "security", "AI", "business"],
+        "description": "Technology, science, and culture. Long-form journalism on how tech shapes society.",
+    },
+    {
+        "name": "Ars Technica",
+        "url": "https://feeds.arstechnica.com/arstechnica/index",
+        "source_type": "rss",
+        "category": "tech",
+        "tags": ["hardware", "software", "science", "policy", "security"],
+        "description": "Deep technical coverage. Strong on hardware, software, science, and IT policy.",
+    },
+    {
+        "name": "VentureBeat",
+        "url": "https://venturebeat.com/feed/",
+        "source_type": "rss",
+        "category": "tech",
+        "tags": ["AI", "enterprise", "gaming", "machine-learning", "data"],
+        "description": "Enterprise tech and AI news. Covers AI/ML, enterprise software, and gaming tech.",
+    },
+    {
+        "name": "InfoQ",
+        "url": "https://www.infoq.com/feed/",
+        "source_type": "rss",
+        "category": "software-engineering",
+        "tags": ["architecture", "devops", "cloud", "programming", "AI"],
+        "description": "Software engineering news. Deep dives into architecture, DevOps, cloud, and practices.",
+    },
+    {
+        "name": "Dev.to",
+        "url": "https://dev.to/feed",
+        "source_type": "rss",
+        "category": "software-engineering",
+        "tags": ["programming", "tutorials", "web-dev", "open-source", "career"],
+        "description": "Developer community platform. Tutorials, opinion pieces, and dev career content.",
+    },
+    {
+        "name": "Simon Willison",
+        "url": "https://simonwillison.net/atom/everything/",
+        "source_type": "rss",
+        "category": "tech",
+        "tags": ["AI", "LLM", "python", "open-source", "data"],
+        "description": "Simon Willison's blog. Focused on AI/LLM tools, Python, open data, and developer tools.",
+    },
 ]
 
 
@@ -59,17 +129,24 @@ async def _create_user(email: str, password: str, name: str) -> None:
 
 
 async def _seed_sources() -> None:
-    """Seed the curated_sources table with RSS feeds from the spec."""
+    """Seed the curated_sources table with enriched source metadata."""
     from sqlalchemy import select
 
     async with async_session() as session:
-        result = await session.execute(select(CuratedSource.rss_url))
+        result = await session.execute(select(CuratedSource.url))
         existing_urls = {row[0] for row in result.all()}
 
         added = 0
-        for name, url in SEED_SOURCES:
-            if url not in existing_urls:
-                session.add(CuratedSource(name=name, rss_url=url))
+        for source_data in SEED_SOURCES:
+            if source_data["url"] not in existing_urls:
+                session.add(CuratedSource(
+                    name=source_data["name"],
+                    url=source_data["url"],
+                    source_type=source_data.get("source_type", "rss"),
+                    category=source_data.get("category"),
+                    tags=source_data.get("tags", []),
+                    description=source_data.get("description"),
+                ))
                 added += 1
 
         await session.commit()

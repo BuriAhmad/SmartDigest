@@ -5,7 +5,7 @@ from app.models.curated_source import CuratedSource
 from app.models.digest import Digest
 from app.models.digest_item import DigestItem
 from app.models.pipeline_event import PipelineEvent
-from app.models.subscription import Subscription
+from app.models.briefing import Briefing
 
 __all__ = [
     "User",
@@ -13,5 +13,5 @@ __all__ = [
     "Digest",
     "DigestItem",
     "PipelineEvent",
-    "Subscription",
+    "Briefing",
 ]

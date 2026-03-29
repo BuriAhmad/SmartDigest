@@ -83,14 +83,14 @@ def create_app() -> FastAPI:
     # --- API Routers ---
     from app.api.auth import router as auth_router
     from app.api.sources import router as sources_router
-    from app.api.subscriptions import router as subscriptions_router
+    from app.api.briefings import router as briefings_router
     from app.api.digests import router as digests_router
     from app.api.jobs import router as jobs_router
     from app.api.metrics import router as metrics_router
 
     application.include_router(auth_router)
     application.include_router(sources_router, prefix="/api/v1")
-    application.include_router(subscriptions_router, prefix="/api/v1")
+    application.include_router(briefings_router, prefix="/api/v1")
     application.include_router(digests_router, prefix="/api/v1")
     application.include_router(jobs_router, prefix="/api/v1")
     application.include_router(metrics_router, prefix="/api/v1")
@@ -109,24 +109,24 @@ def create_app() -> FastAPI:
 
     @application.get("/", response_class=HTMLResponse)
     async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
-        """Main dashboard — shows subscriptions, digests, pipeline health."""
-        from app.models.subscription import Subscription
+        """Main dashboard — shows briefings, digests, pipeline health."""
+        from app.models.briefing import Briefing
         from app.models.digest import Digest
         from app.models.curated_source import CuratedSource
 
         user_id = request.state.user_id
         user_email = request.state.user_email
 
-        # Load user's active subscriptions
-        subs_result = await db.execute(
-            select(Subscription)
+        # Load user's active briefings
+        briefings_result = await db.execute(
+            select(Briefing)
             .where(
-                Subscription.user_id == user_id,
-                Subscription.active.is_(True),
+                Briefing.user_id == user_id,
+                Briefing.active.is_(True),
             )
-            .order_by(Subscription.created_at.desc())
+            .order_by(Briefing.created_at.desc())
         )
-        subscriptions = subs_result.scalars().all()
+        briefings = briefings_result.scalars().all()
 
         # Load recent digests (last 10) with topic and item count
         from app.models.digest_item import DigestItem
@@ -134,23 +134,23 @@ def create_app() -> FastAPI:
         digests_result = await db.execute(
             select(
                 Digest.id,
-                Digest.subscription_id,
+                Digest.briefing_id,
                 Digest.status,
                 Digest.created_at,
                 Digest.delivered_at,
-                Subscription.topic,
+                Briefing.topic,
                 sqlfunc.count(DigestItem.id).label("item_count"),
             )
-            .join(Subscription, Digest.subscription_id == Subscription.id)
+            .join(Briefing, Digest.briefing_id == Briefing.id)
             .outerjoin(DigestItem, DigestItem.digest_id == Digest.id)
-            .where(Subscription.user_id == user_id)
+            .where(Briefing.user_id == user_id)
             .group_by(
                 Digest.id,
-                Digest.subscription_id,
+                Digest.briefing_id,
                 Digest.status,
                 Digest.created_at,
                 Digest.delivered_at,
-                Subscription.topic,
+                Briefing.topic,
             )
             .order_by(Digest.created_at.desc())
             .limit(10)
@@ -162,7 +162,7 @@ def create_app() -> FastAPI:
         for row in digests_raw:
             digests.append({
                 "id": row[0],
-                "subscription_id": row[1],
+                "briefing_id": row[1],
                 "status": row[2],
                 "created_at": row[3],
                 "delivered_at": row[4],
@@ -181,7 +181,7 @@ def create_app() -> FastAPI:
         return templates.TemplateResponse("dashboard.html", {
             "request": request,
             "user_email": user_email,
-            "subscriptions": subscriptions,
+            "briefings": briefings,
             "digests": digests,
             "sources": sources,
         })
@@ -219,28 +219,28 @@ def create_app() -> FastAPI:
         """Digest detail page — only accessible to the owning user."""
         from app.models.digest import Digest
         from app.models.digest_item import DigestItem
-        from app.models.subscription import Subscription
+        from app.models.briefing import Briefing
 
         user_id = request.state.user_id
 
-        # Enforce ownership: join through subscription
+        # Enforce ownership: join through briefing
         result = await db.execute(
             select(Digest)
-            .join(Subscription, Digest.subscription_id == Subscription.id)
+            .join(Briefing, Digest.briefing_id == Briefing.id)
             .where(
                 Digest.id == digest_id,
-                Subscription.user_id == user_id,
+                Briefing.user_id == user_id,
             )
         )
         digest = result.scalar_one_or_none()
         if digest is None:
             return HTMLResponse("<h1>Digest not found</h1>", status_code=404)
 
-        # Get subscription topic
-        sub_result = await db.execute(
-            select(Subscription.topic).where(Subscription.id == digest.subscription_id)
+        # Get briefing topic
+        briefing_result = await db.execute(
+            select(Briefing.topic).where(Briefing.id == digest.briefing_id)
         )
-        topic_row = sub_result.first()
+        topic_row = briefing_result.first()
         digest.topic = topic_row[0] if topic_row else "Unknown"
 
         # Get items

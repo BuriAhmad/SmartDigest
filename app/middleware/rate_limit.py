@@ -16,5 +16,5 @@ def _get_user_identifier(request: Request) -> str:
     return get_remote_address(request)
 
 
-# Shared limiter instance — imported in main.py and subscription routes
+# Shared limiter instance — imported in main.py and briefing routes
 limiter = Limiter(key_func=_get_user_identifier)
