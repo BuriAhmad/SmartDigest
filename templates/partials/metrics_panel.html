@@ -3,15 +3,15 @@
     <div>
         <h4 class="text-sm font-medium text-gray-600 mb-2">Last 24 Hours</h4>
         <div class="grid grid-cols-3 gap-2">
-            <div class="text-center p-2 bg-gray-50 rounded-lg">
+            <div class="text-center p-2.5 bg-gray-50 rounded-lg">
                 <div class="text-lg font-bold text-gray-800">{{ metrics.total_jobs }}</div>
                 <div class="text-xs text-gray-500">Total</div>
             </div>
-            <div class="text-center p-2 bg-green-50 rounded-lg">
+            <div class="text-center p-2.5 bg-green-50 rounded-lg">
                 <div class="text-lg font-bold text-green-700">{{ metrics.by_status.done }}</div>
                 <div class="text-xs text-gray-500">Done</div>
             </div>
-            <div class="text-center p-2 bg-red-50 rounded-lg">
+            <div class="text-center p-2.5 bg-red-50 rounded-lg">
                 <div class="text-lg font-bold text-red-700">{{ metrics.by_status.failed }}</div>
                 <div class="text-xs text-gray-500">Failed</div>
             </div>

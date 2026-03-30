@@ -3,37 +3,38 @@
 {% block title %}Log In — SmartDigest{% endblock %}
 
 {% block content %}
-<div class="max-w-md mx-auto mt-16">
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+<div class="max-w-md mx-auto mt-8 sm:mt-16 px-2 sm:px-0">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 sm:p-8">
         <div class="text-center mb-6">
+            <div class="text-4xl mb-3">📬</div>
             <h2 class="text-2xl font-bold text-gray-800">Welcome to SmartDigest</h2>
-            <p class="text-gray-500 mt-2">Log in to manage your digests.</p>
+            <p class="text-gray-500 mt-2 text-sm">Log in to manage your digests.</p>
         </div>
 
         <!-- Tab switcher -->
-        <div class="flex border-b border-gray-200 mb-6">
-            <button id="tab-login" onclick="showTab('login')"
+        <div class="flex border-b border-gray-200 mb-6" role="tablist">
+            <button id="tab-login" onclick="showTab('login')" role="tab" aria-selected="true" aria-controls="login-form"
                 class="flex-1 pb-3 text-sm font-medium text-blue-600 border-b-2 border-blue-600 transition-colors">
                 Log In
             </button>
-            <button id="tab-register" onclick="showTab('register')"
+            <button id="tab-register" onclick="showTab('register')" role="tab" aria-selected="false" aria-controls="register-form"
                 class="flex-1 pb-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 transition-colors">
                 Sign Up
             </button>
         </div>
 
         <!-- Login form -->
-        <form id="login-form" action="/auth/login" method="POST" class="space-y-4">
+        <form id="login-form" action="/auth/login" method="POST" class="space-y-4" role="tabpanel">
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input type="email" name="email" required placeholder="you@example.com"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <label for="login-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input type="email" name="email" id="login-email" required placeholder="you@example.com" autofocus
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2.5 sm:py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
                 <div class="relative">
                     <input type="password" name="password" id="login-password" required placeholder="••••••••" minlength="8"
-                        class="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2.5 sm:py-2 pr-10 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                     <button type="button" onclick="togglePassword('login-password', 'eye-login')"
                         class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                         <span id="eye-login">👁</span>
@@ -41,29 +42,29 @@
                 </div>
             </div>
             <div id="login-errors" class="hidden text-red-600 text-sm"></div>
-            <button type="submit"
-                class="w-full bg-blue-600 text-white py-2.5 px-4 rounded-lg hover:bg-blue-700 font-medium text-sm transition-colors">
+            <button type="submit" id="login-btn"
+                class="w-full bg-blue-600 text-white py-3 sm:py-2.5 px-4 rounded-lg hover:bg-blue-700 active:bg-blue-800 font-medium text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
                 Log In
             </button>
         </form>
 
         <!-- Register form (hidden by default) -->
-        <form id="register-form" action="/auth/register" method="POST" class="space-y-4 hidden">
+        <form id="register-form" action="/auth/register" method="POST" class="space-y-4 hidden" role="tabpanel">
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                <input type="text" name="name" required placeholder="Your name"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <label for="reg-name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                <input type="text" name="name" id="reg-name" required placeholder="Your name"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2.5 sm:py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input type="email" name="email" required placeholder="you@example.com"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <label for="reg-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input type="email" name="email" id="reg-email" required placeholder="you@example.com"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2.5 sm:py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
                 <div class="relative">
                     <input type="password" name="password" id="reg-password" required placeholder="Min 8 characters" minlength="8"
-                        class="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2.5 sm:py-2 pr-10 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                     <button type="button" onclick="togglePassword('reg-password', 'eye-reg')"
                         class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                         <span id="eye-reg">👁</span>
@@ -74,7 +75,7 @@
                 <label class="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
                 <div class="relative">
                     <input type="password" id="reg-confirm" required placeholder="Repeat your password" minlength="8"
-                        class="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2.5 sm:py-2 pr-10 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                     <button type="button" onclick="togglePassword('reg-confirm', 'eye-confirm')"
                         class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                         <span id="eye-confirm">👁</span>
@@ -82,8 +83,8 @@
                 </div>
             </div>
             <div id="register-errors" class="hidden text-red-600 text-sm"></div>
-            <button type="submit"
-                class="w-full bg-blue-600 text-white py-2.5 px-4 rounded-lg hover:bg-blue-700 font-medium text-sm transition-colors">
+            <button type="submit" id="register-btn"
+                class="w-full bg-blue-600 text-white py-3 sm:py-2.5 px-4 rounded-lg hover:bg-blue-700 active:bg-blue-800 font-medium text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
                 Create Account
             </button>
         </form>
@@ -102,15 +103,22 @@
             registerForm.classList.add("hidden");
             tabLogin.classList.add("text-blue-600", "border-blue-600");
             tabLogin.classList.remove("text-gray-400", "border-transparent");
+            tabLogin.setAttribute("aria-selected", "true");
             tabRegister.classList.add("text-gray-400", "border-transparent");
             tabRegister.classList.remove("text-blue-600", "border-blue-600");
+            tabRegister.setAttribute("aria-selected", "false");
+            // Focus first input
+            setTimeout(function() { document.getElementById("login-email").focus(); }, 50);
         } else {
             loginForm.classList.add("hidden");
             registerForm.classList.remove("hidden");
             tabRegister.classList.add("text-blue-600", "border-blue-600");
             tabRegister.classList.remove("text-gray-400", "border-transparent");
+            tabRegister.setAttribute("aria-selected", "true");
             tabLogin.classList.add("text-gray-400", "border-transparent");
             tabLogin.classList.remove("text-blue-600", "border-blue-600");
+            tabLogin.setAttribute("aria-selected", "false");
+            setTimeout(function() { document.getElementById("reg-name").focus(); }, 50);
         }
     }
 
@@ -132,7 +140,10 @@
         e.preventDefault();
         var form = e.target;
         var errDiv = document.getElementById("login-errors");
+        var btn = document.getElementById("login-btn");
         errDiv.classList.add("hidden");
+        btn.disabled = true;
+        btn.textContent = "Logging in…";
 
         try {
             var resp = await fetch(form.action, {
@@ -141,8 +152,6 @@
                 redirect: "follow",
             });
             if (resp.redirected) {
-                // replace() removes login from history — pressing back after
-                // login won't land you back on the login page.
                 window.location.replace(resp.url);
                 return;
             }
@@ -154,6 +163,9 @@
         } catch(ex) {
             errDiv.textContent = "Network error: " + ex.message;
             errDiv.classList.remove("hidden");
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "Log In";
         }
     });
 
@@ -161,6 +173,7 @@
         e.preventDefault();
         var form = e.target;
         var errDiv = document.getElementById("register-errors");
+        var btn = document.getElementById("register-btn");
         errDiv.classList.add("hidden");
 
         // Client-side confirm password check
@@ -171,6 +184,9 @@
             errDiv.classList.remove("hidden");
             return;
         }
+
+        btn.disabled = true;
+        btn.textContent = "Creating account…";
 
         try {
             var resp = await fetch(form.action, {
@@ -190,6 +206,9 @@
         } catch(ex) {
             errDiv.textContent = "Network error: " + ex.message;
             errDiv.classList.remove("hidden");
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "Create Account";
         }
     });
 </script>

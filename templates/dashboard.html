@@ -3,20 +3,27 @@
 {% block title %}Dashboard — SmartDigest{% endblock %}
 
 {% block nav_actions %}
-<button onclick="document.getElementById('create-modal').classList.remove('hidden')"
+<button onclick="openCreateModal()"
     class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 font-medium transition-colors">
     + New Briefing
 </button>
 {% endblock %}
 
-{% block content %}
-<div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+{% block nav_actions_mobile %}
+<button onclick="openCreateModal(); toggleMobileMenu();"
+    class="w-full text-left text-sm font-medium text-blue-600 hover:bg-blue-50 px-3 py-2 rounded-lg transition-colors">
+    + New Briefing
+</button>
+{% endblock %}
 
-    <!-- Left panel: 3/5 -->
-    <div class="lg:col-span-3 space-y-6">
+{% block content %}
+<div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-6">
+
+    <!-- Left panel -->
+    <div class="md:col-span-2 lg:col-span-3 space-y-6">
 
         <!-- Briefing cards -->
-        <div>
+        <section>
             <h2 class="text-lg font-semibold text-gray-800 mb-3">Briefings</h2>
             <div id="briefing-list" class="space-y-3">
                 {% if briefings %}
@@ -25,48 +32,77 @@
                     {% endfor %}
                 {% else %}
                     <div class="bg-white rounded-lg border border-gray-200 p-8 text-center">
-                        <p class="text-gray-500">No briefings yet.</p>
-                        <button onclick="document.getElementById('create-modal').classList.remove('hidden')"
-                            class="mt-3 text-blue-600 hover:text-blue-700 text-sm font-medium">
-                            Create your first briefing →
+                        <div class="text-4xl mb-3">📭</div>
+                        <p class="text-gray-500 mb-1">No briefings yet.</p>
+                        <p class="text-xs text-gray-400 mb-4">Create a briefing to start receiving curated digests.</p>
+                        <button onclick="openCreateModal()"
+                            class="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-sm font-medium transition-colors">
+                            Create your first briefing <span aria-hidden="true">→</span>
                         </button>
                     </div>
                 {% endif %}
             </div>
-        </div>
+        </section>
 
-        <!-- Recent digests table -->
-        <div>
+        <!-- Recent digests -->
+        <section>
             <h2 class="text-lg font-semibold text-gray-800 mb-3">Recent Digests</h2>
             <div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
                 {% if digests %}
-                <table class="w-full text-sm">
-                    <thead class="bg-gray-50 border-b">
-                        <tr>
-                            <th class="text-left px-4 py-2 font-medium text-gray-600">Topic</th>
-                            <th class="text-left px-4 py-2 font-medium text-gray-600">Created</th>
-                            <th class="text-left px-4 py-2 font-medium text-gray-600">Status</th>
-                            <th class="text-left px-4 py-2 font-medium text-gray-600">Items</th>
-                            <th class="text-left px-4 py-2 font-medium text-gray-600">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        {% for d in digests %}
-                        {% include "partials/digest_row.html" %}
-                        {% endfor %}
-                    </tbody>
-                </table>
+                <!-- Desktop table (hidden on mobile) -->
+                <div class="hidden sm:block overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-50 border-b">
+                            <tr>
+                                <th class="text-left px-4 py-2.5 font-medium text-gray-600">Topic</th>
+                                <th class="text-left px-4 py-2.5 font-medium text-gray-600">Created</th>
+                                <th class="text-left px-4 py-2.5 font-medium text-gray-600">Status</th>
+                                <th class="text-left px-4 py-2.5 font-medium text-gray-600">Items</th>
+                                <th class="text-left px-4 py-2.5 font-medium text-gray-600"></th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            {% for d in digests %}
+                            {% include "partials/digest_row.html" %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <!-- Mobile card layout -->
+                <div class="sm:hidden divide-y divide-gray-100">
+                    {% for d in digests %}
+                    <a href="/digests/{{ d.id }}" class="block px-4 py-3 hover:bg-gray-50 transition-colors">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="font-medium text-gray-800 text-sm truncate mr-2">{{ d.topic or "—" }}</span>
+                            {% if d.status == "delivered" %}
+                            <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex-shrink-0">delivered</span>
+                            {% elif d.status == "processing" %}
+                            <span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full flex-shrink-0">processing</span>
+                            {% elif d.status == "failed" %}
+                            <span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full flex-shrink-0">failed</span>
+                            {% else %}
+                            <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full flex-shrink-0">{{ d.status }}</span>
+                            {% endif %}
+                        </div>
+                        <div class="flex items-center gap-3 text-xs text-gray-500">
+                            <span>{{ d.created_at.strftime('%b %d, %H:%M') if d.created_at else "—" }}</span>
+                            <span>{{ d.item_count or 0 }} items</span>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
                 {% else %}
                 <div class="p-8 text-center">
+                    <div class="text-3xl mb-2">📄</div>
                     <p class="text-gray-500">No digests yet. Trigger a pipeline run to get started.</p>
                 </div>
                 {% endif %}
             </div>
-        </div>
+        </section>
     </div>
 
-    <!-- Right panel: 2/5 — Pipeline health -->
-    <div class="lg:col-span-2">
+    <!-- Right panel: Pipeline health -->
+    <div class="md:col-span-1 lg:col-span-2">
         <h2 class="text-lg font-semibold text-gray-800 mb-3">Pipeline Health</h2>
         <div
             hx-get="/dashboard/metrics"
@@ -84,12 +120,16 @@
 </div>
 
 <!-- Create briefing modal -->
-<div id="create-modal" class="hidden fixed inset-0 z-40 flex items-center justify-center modal-backdrop">
-    <div class="bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-lg mx-4 p-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+<div id="create-modal" class="hidden fixed inset-0 z-40 flex items-end sm:items-center justify-center modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="bg-white rounded-t-2xl sm:rounded-xl shadow-xl border border-gray-200 w-full sm:max-w-lg sm:mx-4 p-5 sm:p-6 max-h-[92vh] overflow-y-auto" onclick="event.stopPropagation()">
+        <!-- Drag handle for mobile -->
+        <div class="sm:hidden flex justify-center mb-3">
+            <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
+        </div>
         <div class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-semibold text-gray-800">New Briefing</h3>
-            <button onclick="document.getElementById('create-modal').classList.add('hidden')"
-                class="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+            <h3 id="modal-title" class="text-lg font-semibold text-gray-800">New Briefing</h3>
+            <button onclick="closeCreateModal()" aria-label="Close modal"
+                class="text-gray-400 hover:text-gray-600 text-xl leading-none p-1">&times;</button>
         </div>
 
         <form id="create-form" class="space-y-4">
@@ -187,9 +227,22 @@
 </div>
 
 <script>
+    /* ---- Modal helpers ---- */
+    function openCreateModal() {
+        document.getElementById("create-modal").classList.remove("hidden");
+        // Focus the first input after a tick
+        setTimeout(function() {
+            var firstInput = document.querySelector("#create-form input:first-of-type");
+            if (firstInput) firstInput.focus();
+        }, 100);
+    }
+    function closeCreateModal() {
+        document.getElementById("create-modal").classList.add("hidden");
+    }
+
     // Close modal on backdrop click
     document.getElementById("create-modal").addEventListener("click", function(e) {
-        if (e.target === this) this.classList.add("hidden");
+        if (e.target === this) closeCreateModal();
     });
 
     // Trigger pipeline — cookie-based auth

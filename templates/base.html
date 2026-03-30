@@ -5,70 +5,176 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}SmartDigest{% endblock %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    screens: { 'xs': '475px' },
+                }
+            }
+        }
+    </script>
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <style>
         /* Toast notification */
         .toast {
             position: fixed;
-            top: 1rem;
+            top: 4.5rem;
             right: 1rem;
+            left: 1rem;
             z-index: 50;
-            animation: slideIn 0.3s ease, fadeOut 0.3s ease 3s forwards;
+            animation: slideDown 0.3s ease, fadeOut 0.3s ease 3s forwards;
+            max-width: 28rem;
+            margin-left: auto;
         }
-        @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
+        @media (min-width: 640px) {
+            .toast { left: auto; }
+        }
+        @keyframes slideDown {
+            from { transform: translateY(-1rem); opacity: 0; }
+            to   { transform: translateY(0);     opacity: 1; }
         }
         @keyframes fadeOut {
             from { opacity: 1; }
-            to { opacity: 0; }
+            to   { opacity: 0; }
         }
         /* Modal backdrop */
         .modal-backdrop {
             background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
         }
         /* Loading spinner */
-        .htmx-indicator {
-            display: none;
+        .htmx-indicator { display: none; }
+        .htmx-request .htmx-indicator,
+        .htmx-request.htmx-indicator { display: inline-block; }
+        /* Mobile nav slide */
+        #mobile-menu {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.25s ease-out;
         }
-        .htmx-request .htmx-indicator {
-            display: inline-block;
+        #mobile-menu.open {
+            max-height: 20rem;
         }
-        .htmx-request.htmx-indicator {
-            display: inline-block;
+        /* Better focus ring for accessibility */
+        *:focus-visible {
+            outline: 2px solid #3b82f6;
+            outline-offset: 2px;
+            border-radius: 4px;
+        }
+        /* Smooth page transitions */
+        main { animation: fadeIn 0.2s ease; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to   { opacity: 1; transform: translateY(0); }
         }
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="bg-gray-50 min-h-screen flex flex-col">
     <!-- Top bar -->
-    <nav class="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
-        <div class="flex items-center gap-4">
-            <a href="/" class="text-xl font-bold text-blue-600">📬 SmartDigest</a>
-            {% if user_email %}
-            <span class="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">{{ user_email }}</span>
-            {% endif %}
+    <nav class="bg-white border-b border-gray-200 sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6">
+            <div class="flex items-center justify-between h-14">
+                <!-- Left: Logo -->
+                <div class="flex items-center gap-3 min-w-0">
+                    <a href="/" class="text-xl font-bold text-blue-600 whitespace-nowrap">📬 SmartDigest</a>
+                    {% if user_email %}
+                    <span class="hidden sm:inline-block text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded truncate max-w-[180px]"
+                          title="{{ user_email }}">{{ user_email }}</span>
+                    {% endif %}
+                </div>
+
+                <!-- Right: desktop nav -->
+                <div class="hidden sm:flex items-center gap-3">
+                    <a href="/docs" class="text-sm text-gray-500 hover:text-gray-700 transition-colors">API Docs</a>
+                    {% if user_email %}
+                    <form action="/auth/logout" method="POST" class="inline">
+                        <button type="submit" class="text-sm text-gray-500 hover:text-red-600 transition-colors">Log out</button>
+                    </form>
+                    {% endif %}
+                    {% block nav_actions %}{% endblock %}
+                </div>
+
+                <!-- Hamburger button (mobile) -->
+                <button id="hamburger-btn" type="button" aria-label="Toggle navigation"
+                        aria-expanded="false" aria-controls="mobile-menu"
+                        class="sm:hidden inline-flex items-center justify-center p-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                        onclick="toggleMobileMenu()">
+                    <svg id="hamburger-icon" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                    </svg>
+                    <svg id="close-icon" class="h-6 w-6 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
         </div>
-        <div class="flex items-center gap-3">
-            <a href="/docs" class="text-sm text-gray-500 hover:text-gray-700">API Docs</a>
-            {% if user_email %}
-            <form action="/auth/logout" method="POST" class="inline">
-                <button type="submit" class="text-sm text-gray-500 hover:text-red-600">Log out</button>
-            </form>
-            {% endif %}
-            {% block nav_actions %}{% endblock %}
+
+        <!-- Mobile menu -->
+        <div id="mobile-menu" class="sm:hidden border-t border-gray-100">
+            <div class="px-4 py-3 space-y-2">
+                {% if user_email %}
+                <div class="text-xs text-gray-500 bg-gray-50 px-3 py-2 rounded-lg truncate">{{ user_email }}</div>
+                {% endif %}
+                {% block nav_actions_mobile %}{% endblock %}
+                <a href="/docs" class="block text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-50 px-3 py-2 rounded-lg transition-colors">API Docs</a>
+                {% if user_email %}
+                <form action="/auth/logout" method="POST">
+                    <button type="submit" class="w-full text-left text-sm text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg transition-colors">Log out</button>
+                </form>
+                {% endif %}
+            </div>
         </div>
     </nav>
 
     <!-- Toast container -->
-    <div id="toast-container"></div>
+    <div id="toast-container" aria-live="polite"></div>
 
     <!-- Main content -->
-    <main class="max-w-7xl mx-auto px-6 py-6">
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 sm:py-6">
         {% block content %}{% endblock %}
     </main>
 
+    <!-- Footer -->
+    <footer class="border-t border-gray-200 bg-white mt-auto">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-gray-400">
+            <span>© {{ now().year if now is defined else "2026" }} SmartDigest</span>
+            <div class="flex gap-4">
+                <a href="/docs" class="hover:text-gray-600 transition-colors">API Docs</a>
+            </div>
+        </div>
+    </footer>
+
     <script>
-        // Listen for HX-Trigger response headers to show toasts
+        /* ---- Mobile menu ---- */
+        function toggleMobileMenu() {
+            var menu = document.getElementById("mobile-menu");
+            var btn  = document.getElementById("hamburger-btn");
+            var open = document.getElementById("hamburger-icon");
+            var close = document.getElementById("close-icon");
+            var isOpen = menu.classList.toggle("open");
+            btn.setAttribute("aria-expanded", isOpen);
+            open.classList.toggle("hidden", isOpen);
+            close.classList.toggle("hidden", !isOpen);
+        }
+
+        /* ---- Global Escape key handler ---- */
+        document.addEventListener("keydown", function(e) {
+            if (e.key === "Escape") {
+                // Close any open modal
+                document.querySelectorAll(".modal-backdrop:not(.hidden)").forEach(function(m) {
+                    m.classList.add("hidden");
+                });
+                // Close mobile menu
+                var menu = document.getElementById("mobile-menu");
+                if (menu && menu.classList.contains("open")) {
+                    toggleMobileMenu();
+                }
+            }
+        });
+
+        /* ---- Toasts ---- */
         document.body.addEventListener("showToast", function(evt) {
             var msg = evt.detail.message || "Done";
             var level = evt.detail.level || "success";
@@ -78,33 +184,35 @@
         function showToast(message, level) {
             var colors = {
                 success: "bg-green-500",
-                error: "bg-red-500",
+                error:   "bg-red-500",
                 warning: "bg-yellow-500",
-                info: "bg-blue-500"
+                info:    "bg-blue-500"
+            };
+            var icons = {
+                success: "✓",
+                error:   "✕",
+                warning: "⚠",
+                info:    "ℹ"
             };
             var color = colors[level] || colors.info;
+            var icon  = icons[level]  || icons.info;
             var container = document.getElementById("toast-container");
             var toast = document.createElement("div");
-            toast.className = "toast " + color + " text-white px-4 py-3 rounded-lg shadow-lg text-sm";
-            toast.textContent = message;
+            toast.className = "toast " + color + " text-white px-4 py-3 rounded-lg shadow-lg text-sm flex items-center gap-2";
+            toast.setAttribute("role", "alert");
+            toast.innerHTML = '<span class="font-bold">' + icon + '</span> ' + message;
             container.appendChild(toast);
             setTimeout(function() { toast.remove(); }, 3500);
         }
 
-        // Belt-and-suspenders bfcache guard (primarily for Safari).
-        // If this authenticated page is ever restored from the back-forward
-        // cache (e.g. after logout + back button), force a fresh reload so
-        // the server can check the cookie. The server will redirect to /login
-        // if the session is gone, making the back button safe.
+        /* ---- bfcache guard (Safari) ---- */
         {% if user_email %}
         window.addEventListener("pageshow", function(e) {
-            if (e.persisted) {
-                window.location.reload();
-            }
+            if (e.persisted) window.location.reload();
         });
         {% endif %}
 
-        // Handle HTMX response errors
+        /* ---- HTMX error handler ---- */
         document.body.addEventListener("htmx:responseError", function(evt) {
             var detail = "Something went wrong";
             try {

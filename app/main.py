@@ -234,7 +234,22 @@ def create_app() -> FastAPI:
         )
         digest = result.scalar_one_or_none()
         if digest is None:
-            return HTMLResponse("<h1>Digest not found</h1>", status_code=404)
+            return templates.TemplateResponse("base.html", {
+                "request": request,
+                "user_email": getattr(request.state, "user_email", ""),
+            }, status_code=404, block_name=None) if False else HTMLResponse(
+                """<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Not Found — SmartDigest</title>
+                <script src="https://cdn.tailwindcss.com"></script></head>
+                <body class="bg-gray-50 min-h-screen flex items-center justify-center p-4">
+                <div class="text-center"><div class="text-5xl mb-4">🔍</div>
+                <h1 class="text-2xl font-bold text-gray-800 mb-2">Digest not found</h1>
+                <p class="text-gray-500 mb-6 text-sm">This digest doesn't exist or you don't have access to it.</p>
+                <a href="/" class="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium text-sm">
+                ← Back to Dashboard</a></div></body></html>""",
+                status_code=404,
+            )
 
         # Get briefing topic
         briefing_result = await db.execute(
