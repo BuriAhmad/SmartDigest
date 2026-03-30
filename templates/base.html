@@ -91,6 +91,19 @@
             setTimeout(function() { toast.remove(); }, 3500);
         }
 
+        // Belt-and-suspenders bfcache guard (primarily for Safari).
+        // If this authenticated page is ever restored from the back-forward
+        // cache (e.g. after logout + back button), force a fresh reload so
+        // the server can check the cookie. The server will redirect to /login
+        // if the session is gone, making the back button safe.
+        {% if user_email %}
+        window.addEventListener("pageshow", function(e) {
+            if (e.persisted) {
+                window.location.reload();
+            }
+        });
+        {% endif %}
+
         // Handle HTMX response errors
         document.body.addEventListener("htmx:responseError", function(evt) {
             var detail = "Something went wrong";

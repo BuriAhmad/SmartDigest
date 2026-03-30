@@ -141,7 +141,9 @@
                 redirect: "follow",
             });
             if (resp.redirected) {
-                window.location.href = resp.url;
+                // replace() removes login from history — pressing back after
+                // login won't land you back on the login page.
+                window.location.replace(resp.url);
                 return;
             }
             if (!resp.ok) {
@@ -177,7 +179,7 @@
                 redirect: "follow",
             });
             if (resp.redirected) {
-                window.location.href = resp.url;
+                window.location.replace(resp.url);
                 return;
             }
             if (!resp.ok) {

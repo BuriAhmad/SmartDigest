@@ -66,7 +66,18 @@ class SessionAuthMiddleware(BaseHTTPMiddleware):
         request.state.user_id = payload["sub"]
         request.state.user_email = payload["email"]
 
-        return await call_next(request)
+        response = await call_next(request)
+
+        # Prevent authenticated pages from being stored in the browser cache or
+        # bfcache (back-forward cache). Without this, pressing the browser back
+        # button after logout restores the page from memory without ever making
+        # a server request, bypassing this middleware entirely.
+        content_type = response.headers.get("content-type", "")
+        if "text/html" in content_type:
+            response.headers["Cache-Control"] = "no-store, private"
+            response.headers["Pragma"] = "no-cache"
+
+        return response
 
     @staticmethod
     def _unauthenticated(request: Request) -> Response:
