@@ -47,7 +47,7 @@
             </div>
 
             <div class="text-xs text-gray-500">
-                📧 {{ briefing.email }} · ⏰ {{ briefing.schedule }}
+                📧 {{ briefing.email }} · ⏰ <span class="cron-schedule" data-cron="{{ briefing.schedule }}">{{ briefing.schedule }}</span>
             </div>
         </div>
         <div class="flex items-center gap-2 flex-shrink-0 self-start sm:ml-4">

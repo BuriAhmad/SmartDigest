@@ -204,14 +204,15 @@
             <!-- Schedule -->
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Schedule</label>
-                <select name="schedule"
+                <select name="schedule" id="schedule-select"
                     class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <option value="0 7 * * *">Daily 7 AM UTC</option>
-                    <option value="0 6 * * *">Daily 6 AM UTC</option>
-                    <option value="0 8 * * *">Daily 8 AM UTC</option>
-                    <option value="0 12 * * *">Daily Noon UTC</option>
-                    <option value="0 18 * * *">Daily 6 PM UTC</option>
+                    <option value="0 7 * * *"  data-utc-hour="7">Daily 7:00 AM UTC</option>
+                    <option value="0 6 * * *"  data-utc-hour="6">Daily 6:00 AM UTC</option>
+                    <option value="0 8 * * *"  data-utc-hour="8">Daily 8:00 AM UTC</option>
+                    <option value="0 12 * * *" data-utc-hour="12">Daily 12:00 PM UTC</option>
+                    <option value="0 18 * * *" data-utc-hour="18">Daily 6:00 PM UTC</option>
                 </select>
+                <p id="tz-hint" class="text-xs text-gray-400 mt-1">Times shown in UTC</p>
             </div>
 
             <!-- Validation error area -->
@@ -244,6 +245,70 @@
     document.getElementById("create-modal").addEventListener("click", function(e) {
         if (e.target === this) closeCreateModal();
     });
+
+    /* ---- Timezone localization ---- */
+    (function() {
+        try {
+            var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            var tzAbbr = new Intl.DateTimeFormat("en", { timeZoneName: "short" })
+                .formatToParts(new Date())
+                .find(function(p) { return p.type === "timeZoneName"; }).value;
+
+            // Convert a UTC hour (0-23) to a localized time string e.g. "7:00 AM"
+            function utcHourToLocal(utcHour) {
+                var now = new Date();
+                var d = new Date(Date.UTC(
+                    now.getFullYear(), now.getMonth(), now.getDate(),
+                    utcHour, 0, 0
+                ));
+                return d.toLocaleTimeString("en-US", {
+                    hour: "numeric",
+                    minute: "2-digit",
+                    timeZone: tz,
+                    hour12: true
+                });
+            }
+
+            // Parse "0 H * * *" cron and return a human label in local time
+            function cronToLocal(cron) {
+                var parts = cron.trim().split(/\s+/);
+                if (parts.length === 5 &&
+                    parts[0] === "0" && parts[2] === "*" &&
+                    parts[3] === "*" && parts[4] === "*") {
+                    var h = parseInt(parts[1], 10);
+                    if (!isNaN(h)) {
+                        return "Daily " + utcHourToLocal(h) + " " + tzAbbr;
+                    }
+                }
+                return cron; // fallback: show raw cron
+            }
+
+            // Re-label the schedule dropdown
+            var select = document.getElementById("schedule-select");
+            if (select) {
+                Array.from(select.options).forEach(function(opt) {
+                    var h = parseInt(opt.dataset.utcHour, 10);
+                    if (!isNaN(h)) {
+                        opt.textContent = "Daily " + utcHourToLocal(h) + " " + tzAbbr;
+                    }
+                });
+            }
+
+            // Update the timezone hint label
+            var hint = document.getElementById("tz-hint");
+            if (hint) {
+                hint.textContent = "Times are in your timezone: " + tz;
+            }
+
+            // Re-label every cron span in briefing / subscription cards
+            document.querySelectorAll(".cron-schedule").forEach(function(el) {
+                el.textContent = cronToLocal(el.dataset.cron || "");
+            });
+
+        } catch (e) {
+            // Fail silently — UTC labels remain as fallback
+        }
+    })();
 
     // Trigger pipeline — cookie-based auth
     async function triggerPipeline(briefingId) {

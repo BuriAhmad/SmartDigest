@@ -16,7 +16,7 @@
                 {% endfor %}
             </div>
             <div class="text-xs text-gray-500">
-                📧 {{ sub.email }} · ⏰ {{ sub.schedule }}
+                📧 {{ sub.email }} · ⏰ <span class="cron-schedule" data-cron="{{ sub.schedule }}">{{ sub.schedule }}</span>
             </div>
         </div>
         <div class="flex items-center gap-2 flex-shrink-0 self-start sm:ml-4">
