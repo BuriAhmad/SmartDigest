@@ -54,152 +54,170 @@
 {% endif %}
 
 <!-- Create briefing drawer -->
-<div id="drawer-overlay" class="drawer-overlay" onclick="handleOverlayClick(event)">
-  <div id="create-drawer" class="drawer">
+<div id="drawer-overlay" class="drawer-overlay" onclick="closeCreateModal()"></div>
+<div id="create-drawer" class="drawer">
 
-    <!-- Header -->
-    <div class="drawer-header">
-      <h2>Create Briefing</h2>
-      <button class="drawer-close" onclick="closeCreateModal()" aria-label="Close drawer">&#x2715;</button>
-    </div>
+  <button class="drawer-close" onclick="closeCreateModal()" aria-label="Close">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+  </button>
 
-    <!-- Scrollable body -->
-    <div class="drawer-body">
-      <form id="create-form">
-
-        <!-- Topic -->
-        <div class="form-group">
-          <label class="form-label">Topic</label>
-          <input type="text" name="topic" required class="form-input" placeholder="e.g. AI Research">
-        </div>
-
-        <!-- Intent -->
-        <div class="form-group">
-          <label class="form-label">What do you want to learn?</label>
-          <textarea name="intent_description" required rows="3" class="form-input" placeholder="Describe what you&#39;re looking for..."></textarea>
-          <p class="form-hint">Be specific — guides article selection (min 20 chars)</p>
-        </div>
-
-        <!-- Keywords -->
-        <div class="form-group">
-          <label class="form-label">Keywords</label>
-          <input type="text" name="keywords" required class="form-input" placeholder="Add keywords...">
-          <p class="form-hint">Comma-separated</p>
-        </div>
-
-        <!-- Sources -->
-        <div class="form-group">
-          <label class="form-label">Sources <span style="color:var(--muted-fg);font-weight:400;">(select at least 1)</span></label>
-
-          <!-- Search box -->
-          <div class="source-search-box">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="source-search-input" placeholder="Search sources...">
-          </div>
-
-          <!-- Category filter pills -->
-          <div class="filter-pills" id="category-pills">
-            <button type="button" class="filter-pill active" data-cat="all" onclick="filterCategory(this)">All</button>
-            {% set cat_ns = namespace(seen=[]) %}
-            {% for s in sources %}
-              {% if s.category and s.category not in cat_ns.seen %}
-                {% set cat_ns.seen = cat_ns.seen + [s.category] %}
-              {% endif %}
-            {% endfor %}
-            {% for cat in cat_ns.seen %}
-            <button type="button" class="filter-pill" data-cat="{{ cat }}" onclick="filterCategory(this)">{{ cat }}</button>
-            {% endfor %}
-          </div>
-
-          <!-- Source cards -->
-          <div class="sources-list" id="sources-list">
-            {% for source in sources %}
-            <label class="source-card" data-category="{{ source.category or '' }}" data-name="{{ source.name | lower }}">
-              <input type="checkbox" name="sources" value="{{ source.url }}" onchange="updateSelectedCount()">
-              <div>
-                <div class="source-name">{{ source.name }}</div>
-                {% if source.description %}<div class="source-desc">{{ source.description }}</div>{% endif %}
-                {% if source.tags %}
-                <div class="source-tags">
-                  {% for tag in source.tags %}<span class="source-tag">{{ tag }}</span>{% endfor %}
-                </div>
-                {% endif %}
-              </div>
-            </label>
-            {% endfor %}
-          </div>
-          <div class="selected-counter" id="selected-counter">0 sources selected</div>
-        </div>
-
-        <!-- Delivery Email -->
-        <div class="form-group">
-          <label class="form-label">Delivery Email</label>
-          <input type="email" name="email" required class="form-input" placeholder="you@example.com">
-        </div>
-
-        <!-- Schedule -->
-        <div class="form-group">
-          <label class="form-label">Schedule (daily)</label>
-          <select name="schedule" id="schedule-select" class="form-input">
-            <option value="0 7 * * *"  data-utc-hour="7">Daily 7:00 AM UTC</option>
-            <option value="0 6 * * *"  data-utc-hour="6">Daily 6:00 AM UTC</option>
-            <option value="0 8 * * *"  data-utc-hour="8">Daily 8:00 AM UTC</option>
-            <option value="0 12 * * *" data-utc-hour="12">Daily 12:00 PM UTC</option>
-            <option value="0 18 * * *" data-utc-hour="18">Daily 6:00 PM UTC</option>
-          </select>
-          <p id="tz-hint" class="form-hint">Times shown in UTC</p>
-        </div>
-
-        <!-- Exclusion Keywords (optional) -->
-        <div class="form-group">
-          <label class="form-label">Exclusion keywords <span style="color:hsl(38 92% 55%);font-weight:400;">(optional)</span></label>
-          <input type="text" name="exclusion_keywords" class="form-input" placeholder="Words to filter out...">
-        </div>
-
-        <!-- Example Articles (optional) -->
-        <div class="form-group">
-          <label class="form-label">Example articles <span style="color:hsl(38 92% 55%);font-weight:400;">(optional)</span></label>
-          <input type="text" name="example_articles" class="form-input" placeholder="Paste article URLs...">
-        </div>
-
-        <!-- Error area -->
-        <div id="create-errors" class="form-error"></div>
-
-      </form>
-    </div>
-
-    <!-- Sticky footer -->
-    <div class="drawer-footer">
-      <button type="submit" form="create-form" id="create-btn" class="btn btn-primary" style="width:100%;justify-content:center;">
-        Create Briefing
-      </button>
-      <button type="button" onclick="closeCreateModal()" class="btn" style="width:100%;justify-content:center;color:var(--muted-fg);">
-        Cancel
-      </button>
-    </div>
-
+  <div class="drawer-header">
+    <h2>Create Briefing</h2>
   </div>
+
+  <form class="drawer-form" id="create-form">
+
+    <!-- Topic -->
+    <div class="form-group">
+      <label class="form-label">Topic</label>
+      <input type="text" name="topic" required class="form-input" placeholder="e.g. AI Research">
+    </div>
+
+    <!-- Intent -->
+    <div class="form-group">
+      <label class="form-label">What do you want to learn?</label>
+      <textarea name="intent_description" required rows="3" class="form-input" placeholder="Describe what you&#39;re looking for…"></textarea>
+      <p class="form-hint">Be specific — guides article selection (min 20 chars)</p>
+    </div>
+
+    <!-- Keywords tag input -->
+    <div class="form-group">
+      <label class="form-label">Keywords</label>
+      <div class="tag-input-wrap" id="keywords-wrap" onclick="document.getElementById('keywords-input').focus()">
+        <input class="tag-input-inner" id="keywords-input" placeholder="Add keywords…" onkeydown="handleTagKey(event,'keywords')">
+      </div>
+      <p class="form-hint">Press Enter to add each keyword</p>
+    </div>
+
+    <!-- Sources -->
+    <div class="form-group">
+      <label class="form-label">Sources <span style="color:var(--muted-fg);font-weight:400;">(select at least 1)</span></label>
+      <div class="source-search-box">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="source-search-input" placeholder="Search sources…" oninput="applySourceFilters()">
+      </div>
+      <div class="filter-pills" id="category-pills">
+        <button type="button" class="filter-pill active" data-cat="all" onclick="filterCategory(this)">All</button>
+        {% set cat_ns = namespace(seen=[]) %}
+        {% for s in sources %}
+          {% if s.category and s.category not in cat_ns.seen %}
+            {% set cat_ns.seen = cat_ns.seen + [s.category] %}
+          {% endif %}
+        {% endfor %}
+        {% for cat in cat_ns.seen %}
+        <button type="button" class="filter-pill" data-cat="{{ cat }}" onclick="filterCategory(this)">{{ cat }}</button>
+        {% endfor %}
+      </div>
+      <div class="sources-list" id="sources-list">
+        {% for source in sources %}
+        <label class="source-card" data-category="{{ source.category or '' }}" data-name="{{ source.name | lower }}" data-desc="{{ (source.description or '') | lower }}">
+          <input type="checkbox" class="source-cb" name="sources" value="{{ source.url }}" onchange="updateSelectedCount()">
+          <div style="flex:1;min-width:0;">
+            <div class="source-name">{{ source.name }}</div>
+            {% if source.description %}<div class="source-desc">{{ source.description }}</div>{% endif %}
+            {% if source.tags %}
+            <div class="source-tags">
+              {% for tag in source.tags[:3] %}<span class="source-tag">{{ tag }}</span>{% endfor %}
+            </div>
+            {% endif %}
+          </div>
+        </label>
+        {% endfor %}
+      </div>
+      <div class="selected-counter" id="selected-counter">0 sources selected</div>
+    </div>
+
+    <!-- Delivery Email -->
+    <div class="form-group">
+      <label class="form-label">Delivery email</label>
+      <input type="email" name="email" required class="form-input" placeholder="you@example.com">
+    </div>
+
+    <!-- 24-hour time grid -->
+    <div class="form-group">
+      <label class="form-label">Delivery time <span style="color:var(--muted-fg);font-weight:400;">(daily · click an hour)</span></label>
+      <div class="time-grid" id="time-grid"></div>
+      <p class="time-grid-hint" id="time-grid-hint"></p>
+      <input type="hidden" name="schedule" id="schedule-hidden" value="0 8 * * *">
+    </div>
+
+    <!-- Exclusion Keywords -->
+    <div class="form-group">
+      <label class="form-label">Exclusion keywords <span style="color:hsl(38 92% 55%);font-weight:400;">(optional)</span></label>
+      <div class="tag-input-wrap" id="exclusion-wrap" onclick="document.getElementById('exclusion-input').focus()">
+        <input class="tag-input-inner" id="exclusion-input" placeholder="Words to filter out…" onkeydown="handleTagKey(event,'exclusion')">
+      </div>
+    </div>
+
+    <!-- Example Articles -->
+    <div class="form-group">
+      <label class="form-label">Example articles <span style="color:hsl(38 92% 55%);font-weight:400;">(optional URLs)</span></label>
+      <div class="tag-input-wrap" id="examples-wrap" onclick="document.getElementById('examples-input').focus()">
+        <input class="tag-input-inner" id="examples-input" placeholder="Paste article URLs…" onkeydown="handleTagKey(event,'examples')">
+      </div>
+    </div>
+
+    <div id="create-errors" class="form-error"></div>
+
+    <div style="display:flex;gap:12px;padding-top:4px;">
+      <button type="submit" id="create-btn" class="btn btn-primary" style="flex:1;justify-content:center;">Create Briefing</button>
+      <button type="button" onclick="closeCreateModal()" class="btn btn-outline" style="justify-content:center;">Cancel</button>
+    </div>
+
+  </form>
 </div>
 
 <script>
-/* ---- Drawer helpers ---- */
+/* ── Drawer open/close ── */
 function openCreateModal() {
     document.getElementById("drawer-overlay").classList.add("open");
+    document.getElementById("create-drawer").classList.add("open");
     document.body.style.overflow = "hidden";
     setTimeout(function() {
         var el = document.querySelector("#create-form input[name='topic']");
         if (el) el.focus();
-    }, 320);
+    }, 520);
 }
 function closeCreateModal() {
     document.getElementById("drawer-overlay").classList.remove("open");
+    document.getElementById("create-drawer").classList.remove("open");
     document.body.style.overflow = "";
 }
-function handleOverlayClick(e) {
-    if (e.target === document.getElementById("drawer-overlay")) closeCreateModal();
+
+/* ── Tag inputs ── */
+var tagState = { keywords: [], exclusion: [], examples: [] };
+var tagPlaceholders = { keywords: "Add keywords\u2026", exclusion: "Words to filter out\u2026", examples: "Paste article URLs\u2026" };
+
+function handleTagKey(e, group) {
+    if (e.key === "Enter") {
+        e.preventDefault();
+        var val = e.target.value.trim();
+        if (val && !tagState[group].includes(val)) { tagState[group].push(val); renderTags(group); }
+        e.target.value = "";
+    } else if (e.key === "Backspace" && !e.target.value && tagState[group].length) {
+        tagState[group].pop(); renderTags(group);
+    }
+}
+function removeTag(group, tag) {
+    tagState[group] = tagState[group].filter(function(t) { return t !== tag; });
+    renderTags(group);
+}
+function renderTags(group) {
+    var wrap = document.getElementById(group + "-wrap");
+    var input = document.getElementById(group + "-input");
+    wrap.querySelectorAll(".tag-chip").forEach(function(el) { el.remove(); });
+    tagState[group].forEach(function(tag) {
+        var chip = document.createElement("span");
+        chip.className = "tag-chip";
+        var safe = tag.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        chip.innerHTML = tag + ' <button type="button" onclick="removeTag(\'' + group + "','" + safe + '\')">'
+            + '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';
+        wrap.insertBefore(chip, input);
+    });
+    input.placeholder = tagState[group].length ? "" : tagPlaceholders[group];
 }
 
-/* ---- Source category filter ---- */
+/* ── Source filter ── */
 var currentCat = "all";
 function filterCategory(pill) {
     document.querySelectorAll("#category-pills .filter-pill").forEach(function(p) { p.classList.remove("active"); });
@@ -211,58 +229,74 @@ function applySourceFilters() {
     var q = (document.getElementById("source-search-input").value || "").toLowerCase().trim();
     document.querySelectorAll("#sources-list .source-card").forEach(function(card) {
         var matchCat = currentCat === "all" || card.dataset.category === currentCat;
-        var matchQ = !q || (card.dataset.name || "").includes(q);
+        var matchQ = !q || (card.dataset.name || "").includes(q) || (card.dataset.desc || "").includes(q);
         card.style.display = (matchCat && matchQ) ? "" : "none";
     });
 }
-document.getElementById("source-search-input").addEventListener("input", applySourceFilters);
-
-/* ---- Selected counter ---- */
 function updateSelectedCount() {
     var n = document.querySelectorAll('#create-form input[name="sources"]:checked').length;
     document.getElementById("selected-counter").textContent = n + " source" + (n === 1 ? "" : "s") + " selected";
     document.querySelectorAll("#sources-list .source-card").forEach(function(card) {
-        var cb = card.querySelector("input[type=checkbox]");
+        var cb = card.querySelector(".source-cb");
         card.classList.toggle("checked", !!(cb && cb.checked));
     });
 }
 
-/* ---- Timezone localization ---- */
+/* ── 24-hour time grid + cron localiser ── */
 (function() {
+    var tz = "UTC", tzAbbr = "UTC";
     try {
-        var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        var tzAbbr = new Intl.DateTimeFormat("en", { timeZoneName: "short" })
-            .formatToParts(new Date())
-            .find(function(p) { return p.type === "timeZoneName"; }).value;
-        function utcHourToLocal(h) {
-            var now = new Date();
-            var d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), h, 0, 0));
-            return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: tz, hour12: true });
-        }
-        function cronToLocal(cron) {
-            var parts = cron.trim().split(/\s+/);
-            if (parts.length === 5 && parts[0] === "0" && parts[2] === "*" && parts[3] === "*" && parts[4] === "*") {
-                var h = parseInt(parts[1], 10);
-                if (!isNaN(h)) return "Daily " + utcHourToLocal(h) + " " + tzAbbr;
-            }
-            return cron;
-        }
-        var select = document.getElementById("schedule-select");
-        if (select) {
-            Array.from(select.options).forEach(function(opt) {
-                var h = parseInt(opt.dataset.utcHour, 10);
-                if (!isNaN(h)) opt.textContent = "Daily " + utcHourToLocal(h) + " " + tzAbbr;
-            });
-        }
-        var hint = document.getElementById("tz-hint");
-        if (hint) hint.textContent = "Times shown in your timezone: " + tz;
-        document.querySelectorAll(".cron-schedule").forEach(function(el) {
-            el.textContent = cronToLocal(el.dataset.cron || "");
-        });
+        tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        tzAbbr = new Intl.DateTimeFormat("en", { timeZoneName: "short" })
+            .formatToParts(new Date()).find(function(p) { return p.type === "timeZoneName"; }).value;
     } catch(e) {}
+
+    function utcHourToLocal(h) {
+        var now = new Date();
+        var d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), h, 0, 0));
+        return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: tz, hour12: true });
+    }
+    function cronToLocal(cron) {
+        var parts = cron.trim().split(/\s+/);
+        if (parts.length === 5 && parts[0] === "0" && parts[2] === "*" && parts[3] === "*" && parts[4] === "*") {
+            var h = parseInt(parts[1], 10);
+            if (!isNaN(h)) return "Daily " + utcHourToLocal(h) + " " + tzAbbr;
+        }
+        return cron;
+    }
+    document.querySelectorAll(".cron-schedule").forEach(function(el) {
+        el.textContent = cronToLocal(el.dataset.cron || "");
+    });
+
+    var selectedUtcHour = 8;
+    var grid = document.getElementById("time-grid");
+    var hint = document.getElementById("time-grid-hint");
+    var hidden = document.getElementById("schedule-hidden");
+
+    function selectHour(utcH) {
+        selectedUtcHour = utcH;
+        hidden.value = "0 " + utcH + " * * *";
+        document.querySelectorAll(".time-cell").forEach(function(c) {
+            c.classList.toggle("active", parseInt(c.dataset.utcHour, 10) === utcH);
+        });
+        hint.textContent = "\u21b3 delivers daily at " + utcHourToLocal(utcH) + " " + tzAbbr + "  \u00b7  UTC " + String(utcH).padStart(2, "0") + ":00";
+    }
+
+    for (var h = 0; h < 24; h++) {
+        (function(utcH) {
+            var cell = document.createElement("button");
+            cell.type = "button";
+            cell.className = "time-cell" + (utcH === selectedUtcHour ? " active" : "");
+            cell.dataset.utcHour = utcH;
+            cell.textContent = utcHourToLocal(utcH).replace(":00", "").replace(" AM", "am").replace(" PM", "pm");
+            cell.onclick = function() { selectHour(utcH); };
+            grid.appendChild(cell);
+        })(h);
+    }
+    selectHour(selectedUtcHour);
 })();
 
-/* ---- Trigger pipeline ---- */
+/* ── Trigger pipeline ── */
 async function triggerPipeline(briefingId) {
     var btn = document.getElementById("trigger-btn-" + briefingId);
     btn.textContent = "⏳ Queuing...";
@@ -274,23 +308,18 @@ async function triggerPipeline(briefingId) {
         } else if (resp.status === 429) {
             showToast("Rate limit reached. Try again later.", "warning");
         } else if (resp.status === 401) {
-            window.location.href = "/login";
-            return;
+            window.location.href = "/login"; return;
         } else {
             var errText = await resp.text();
             var detail = "Failed to trigger";
             try { detail = JSON.parse(errText).detail || detail; } catch(_) {}
             showToast(detail, "error");
         }
-    } catch(ex) {
-        showToast("Network error: " + ex.message, "error");
-    } finally {
-        btn.textContent = "▶ Run now";
-        btn.disabled = false;
-    }
+    } catch(ex) { showToast("Network error: " + ex.message, "error"); }
+    finally { btn.textContent = "▶ Run now"; btn.disabled = false; }
 }
 
-/* ---- Delete briefing ---- */
+/* ── Delete briefing ── */
 async function deleteBriefing(briefingId) {
     if (!confirm("Delete this briefing?")) return;
     try {
@@ -301,15 +330,11 @@ async function deleteBriefing(briefingId) {
             if (card) card.remove();
         } else if (resp.status === 401) {
             window.location.href = "/login";
-        } else {
-            showToast("Failed to delete.", "error");
-        }
-    } catch(ex) {
-        showToast("Network error: " + ex.message, "error");
-    }
+        } else { showToast("Failed to delete.", "error"); }
+    } catch(ex) { showToast("Network error: " + ex.message, "error"); }
 }
 
-/* ---- Create form submission ---- */
+/* ── Create form submission ── */
 document.getElementById("create-form").addEventListener("submit", async function(e) {
     e.preventDefault();
     var form = e.target;
@@ -318,31 +343,25 @@ document.getElementById("create-form").addEventListener("submit", async function
 
     var topic = form.topic.value.trim();
     var intentDescription = form.intent_description.value.trim();
-    var keywordsRaw = form.keywords.value.trim();
+    var keywords = tagState.keywords.slice();
     var email = form.email.value.trim();
-    var schedule = form.schedule.value;
+    var schedule = document.getElementById("schedule-hidden").value;
     var checked = form.querySelectorAll('input[name="sources"]:checked');
     var sources = Array.from(checked).map(function(c) { return c.value; });
-    var keywords = keywordsRaw.split(",").map(function(k) { return k.trim(); }).filter(Boolean);
-    var exclusionRaw = (form.exclusion_keywords.value || "").trim();
-    var exclusionKeywords = exclusionRaw ? exclusionRaw.split(",").map(function(k) { return k.trim(); }).filter(Boolean) : [];
-    var exampleRaw = (form.example_articles.value || "").trim();
-    var exampleArticles = exampleRaw ? [exampleRaw] : [];
+    var exclusionKeywords = tagState.exclusion.slice();
+    var exampleArticles = tagState.examples.slice();
 
     if (!topic || !intentDescription || keywords.length === 0 || !email || sources.length === 0) {
-        errDiv.textContent = "Please fill in Topic, Intent, Keywords, Email, and select at least one source.";
-        errDiv.classList.add("visible");
-        return;
+        errDiv.textContent = "Please fill in Topic, Intent, at least one Keyword, Email, and select a source.";
+        errDiv.classList.add("visible"); return;
     }
     if (intentDescription.length < 20) {
         errDiv.textContent = "Intent description must be at least 20 characters.";
-        errDiv.classList.add("visible");
-        return;
+        errDiv.classList.add("visible"); return;
     }
 
     var btn = document.getElementById("create-btn");
-    btn.disabled = true;
-    btn.textContent = "Creating...";
+    btn.disabled = true; btn.textContent = "Creating...";
 
     try {
         var resp = await fetch("/api/v1/briefings", {
@@ -374,8 +393,7 @@ document.getElementById("create-form").addEventListener("submit", async function
         errDiv.textContent = "Network error: " + ex.message;
         errDiv.classList.add("visible");
     } finally {
-        btn.disabled = false;
-        btn.textContent = "Create Briefing";
+        btn.disabled = false; btn.textContent = "Create Briefing";
     }
 });
 </script>
