@@ -2,214 +2,148 @@
 
 {% block title %}Log In — SmartDigest{% endblock %}
 
-{% block content %}
-<div class="max-w-md mx-auto mt-8 sm:mt-16 px-2 sm:px-0">
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 sm:p-8">
-        <div class="text-center mb-6">
-            <div class="text-4xl mb-3">📬</div>
-            <h2 class="text-2xl font-bold text-gray-800">Welcome to SmartDigest</h2>
-            <p class="text-gray-500 mt-2 text-sm">Log in to manage your digests.</p>
-        </div>
-
-        <!-- Tab switcher -->
-        <div class="flex border-b border-gray-200 mb-6" role="tablist">
-            <button id="tab-login" onclick="showTab('login')" role="tab" aria-selected="true" aria-controls="login-form"
-                class="flex-1 pb-3 text-sm font-medium text-blue-600 border-b-2 border-blue-600 transition-colors">
-                Log In
-            </button>
-            <button id="tab-register" onclick="showTab('register')" role="tab" aria-selected="false" aria-controls="register-form"
-                class="flex-1 pb-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 transition-colors">
-                Sign Up
-            </button>
-        </div>
-
-        <!-- Login form -->
-        <form id="login-form" action="/auth/login" method="POST" class="space-y-4" role="tabpanel">
-            <div>
-                <label for="login-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input type="email" name="email" id="login-email" required placeholder="you@example.com" autofocus
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2.5 sm:py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                <div class="relative">
-                    <input type="password" name="password" id="login-password" required placeholder="••••••••" minlength="8"
-                        class="w-full border border-gray-300 rounded-lg px-3 py-2.5 sm:py-2 pr-10 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <button type="button" onclick="togglePassword('login-password', 'eye-login')"
-                        class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                        <span id="eye-login">👁</span>
-                    </button>
-                </div>
-            </div>
-            <div id="login-errors" class="hidden text-red-600 text-sm"></div>
-            <button type="submit" id="login-btn"
-                class="w-full bg-blue-600 text-white py-3 sm:py-2.5 px-4 rounded-lg hover:bg-blue-700 active:bg-blue-800 font-medium text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
-                Log In
-            </button>
-        </form>
-
-        <!-- Register form (hidden by default) -->
-        <form id="register-form" action="/auth/register" method="POST" class="space-y-4 hidden" role="tabpanel">
-            <div>
-                <label for="reg-name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                <input type="text" name="name" id="reg-name" required placeholder="Your name"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2.5 sm:py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-            </div>
-            <div>
-                <label for="reg-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input type="email" name="email" id="reg-email" required placeholder="you@example.com"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2.5 sm:py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                <div class="relative">
-                    <input type="password" name="password" id="reg-password" required placeholder="Min 8 characters" minlength="8"
-                        class="w-full border border-gray-300 rounded-lg px-3 py-2.5 sm:py-2 pr-10 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <button type="button" onclick="togglePassword('reg-password', 'eye-reg')"
-                        class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                        <span id="eye-reg">👁</span>
-                    </button>
-                </div>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
-                <div class="relative">
-                    <input type="password" id="reg-confirm" required placeholder="Repeat your password" minlength="8"
-                        class="w-full border border-gray-300 rounded-lg px-3 py-2.5 sm:py-2 pr-10 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <button type="button" onclick="togglePassword('reg-confirm', 'eye-confirm')"
-                        class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                        <span id="eye-confirm">👁</span>
-                    </button>
-                </div>
-            </div>
-            <div id="register-errors" class="hidden text-red-600 text-sm"></div>
-            <button type="submit" id="register-btn"
-                class="w-full bg-blue-600 text-white py-3 sm:py-2.5 px-4 rounded-lg hover:bg-blue-700 active:bg-blue-800 font-medium text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
-                Create Account
-            </button>
-        </form>
+{% block body %}
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:24px;">
+<div style="width:100%;max-width:400px;">
+  <div style="text-align:center;margin-bottom:32px;">
+    <div style="display:inline-flex;align-items:center;gap:10px;margin-bottom:16px;">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="hsl(172 66% 50%)" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      <span style="font-size:24px;font-weight:700;letter-spacing:-0.02em;color:var(--fg);">SmartDigest</span>
     </div>
+    <p style="font-size:14px;color:var(--muted-fg);">Sign in to manage your content briefings.</p>
+  </div>
+
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;">
+    <!-- Tab switcher -->
+    <div id="auth-tabs" style="display:flex;border-bottom:1px solid var(--border);margin-bottom:20px;">
+      <button onclick="showTab('login')" id="tab-login" style="flex:1;padding:8px 0;font-size:14px;font-weight:500;cursor:pointer;border:none;background:none;font-family:inherit;border-bottom:2px solid var(--primary);color:var(--fg);transition:all 0.15s;">Log In</button>
+      <button onclick="showTab('register')" id="tab-register" style="flex:1;padding:8px 0;font-size:14px;font-weight:500;cursor:pointer;border:none;background:none;font-family:inherit;border-bottom:2px solid transparent;color:var(--muted-fg);transition:all 0.15s;">Sign Up</button>
+    </div>
+
+    <!-- Login form -->
+    <form id="login-form" action="/auth/login" method="POST">
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" name="email" id="login-email" required placeholder="you@example.com" autofocus class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input type="password" name="password" id="login-password" required placeholder="••••••••" minlength="8" class="form-input">
+      </div>
+      <div id="login-errors" class="form-error"></div>
+      <button type="submit" id="login-btn" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px;">Log In</button>
+    </form>
+
+    <!-- Register form -->
+    <form id="register-form" action="/auth/register" method="POST" style="display:none;">
+      <div class="form-group">
+        <label class="form-label">Name</label>
+        <input type="text" name="name" id="reg-name" required placeholder="Your name" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" name="email" id="reg-email" required placeholder="you@example.com" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input type="password" name="password" id="reg-password" required placeholder="Min 8 characters" minlength="8" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Confirm Password</label>
+        <input type="password" id="reg-confirm" required placeholder="Repeat password" minlength="8" class="form-input">
+      </div>
+      <div id="register-errors" class="form-error"></div>
+      <button type="submit" id="register-btn" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px;">Create Account</button>
+    </form>
+  </div>
+</div>
 </div>
 
 <script>
-    function showTab(tab) {
-        var loginForm = document.getElementById("login-form");
-        var registerForm = document.getElementById("register-form");
-        var tabLogin = document.getElementById("tab-login");
-        var tabRegister = document.getElementById("tab-register");
+function showTab(tab) {
+    var loginForm = document.getElementById("login-form");
+    var registerForm = document.getElementById("register-form");
+    var tabLogin = document.getElementById("tab-login");
+    var tabRegister = document.getElementById("tab-register");
 
-        if (tab === "login") {
-            loginForm.classList.remove("hidden");
-            registerForm.classList.add("hidden");
-            tabLogin.classList.add("text-blue-600", "border-blue-600");
-            tabLogin.classList.remove("text-gray-400", "border-transparent");
-            tabLogin.setAttribute("aria-selected", "true");
-            tabRegister.classList.add("text-gray-400", "border-transparent");
-            tabRegister.classList.remove("text-blue-600", "border-blue-600");
-            tabRegister.setAttribute("aria-selected", "false");
-            // Focus first input
-            setTimeout(function() { document.getElementById("login-email").focus(); }, 50);
-        } else {
-            loginForm.classList.add("hidden");
-            registerForm.classList.remove("hidden");
-            tabRegister.classList.add("text-blue-600", "border-blue-600");
-            tabRegister.classList.remove("text-gray-400", "border-transparent");
-            tabRegister.setAttribute("aria-selected", "true");
-            tabLogin.classList.add("text-gray-400", "border-transparent");
-            tabLogin.classList.remove("text-blue-600", "border-blue-600");
-            tabLogin.setAttribute("aria-selected", "false");
-            setTimeout(function() { document.getElementById("reg-name").focus(); }, 50);
+    if (tab === "login") {
+        loginForm.style.display = "";
+        registerForm.style.display = "none";
+        tabLogin.style.borderBottomColor = "var(--primary)";
+        tabLogin.style.color = "var(--fg)";
+        tabRegister.style.borderBottomColor = "transparent";
+        tabRegister.style.color = "var(--muted-fg)";
+        setTimeout(function() { document.getElementById("login-email").focus(); }, 50);
+    } else {
+        loginForm.style.display = "none";
+        registerForm.style.display = "";
+        tabRegister.style.borderBottomColor = "var(--primary)";
+        tabRegister.style.color = "var(--fg)";
+        tabLogin.style.borderBottomColor = "transparent";
+        tabLogin.style.color = "var(--muted-fg)";
+        setTimeout(function() { document.getElementById("reg-name").focus(); }, 50);
+    }
+}
+
+document.getElementById("login-form").addEventListener("submit", async function(e) {
+    e.preventDefault();
+    var form = e.target;
+    var errDiv = document.getElementById("login-errors");
+    var btn = document.getElementById("login-btn");
+    errDiv.classList.remove("visible");
+    btn.disabled = true;
+    btn.textContent = "Logging in…";
+
+    try {
+        var resp = await fetch(form.action, { method: "POST", body: new FormData(form), redirect: "follow" });
+        if (resp.redirected) { window.location.replace(resp.url); return; }
+        if (!resp.ok) {
+            var data = await resp.json();
+            errDiv.textContent = data.detail || "Login failed";
+            errDiv.classList.add("visible");
         }
+    } catch(ex) {
+        errDiv.textContent = "Network error: " + ex.message;
+        errDiv.classList.add("visible");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Log In";
+    }
+});
+
+document.getElementById("register-form").addEventListener("submit", async function(e) {
+    e.preventDefault();
+    var form = e.target;
+    var errDiv = document.getElementById("register-errors");
+    var btn = document.getElementById("register-btn");
+    errDiv.classList.remove("visible");
+
+    var password = document.getElementById("reg-password").value;
+    var confirm  = document.getElementById("reg-confirm").value;
+    if (password !== confirm) {
+        errDiv.textContent = "Passwords do not match.";
+        errDiv.classList.add("visible");
+        return;
     }
 
-    // Toggle password visibility
-    function togglePassword(inputId, iconId) {
-        var input = document.getElementById(inputId);
-        var icon  = document.getElementById(iconId);
-        if (input.type === "password") {
-            input.type = "text";
-            icon.textContent = "🙈";
-        } else {
-            input.type = "password";
-            icon.textContent = "👁";
+    btn.disabled = true;
+    btn.textContent = "Creating account…";
+
+    try {
+        var resp = await fetch(form.action, { method: "POST", body: new FormData(form), redirect: "follow" });
+        if (resp.redirected) { window.location.replace(resp.url); return; }
+        if (!resp.ok) {
+            var data = await resp.json();
+            errDiv.textContent = data.detail || "Registration failed";
+            errDiv.classList.add("visible");
         }
+    } catch(ex) {
+        errDiv.textContent = "Network error: " + ex.message;
+        errDiv.classList.add("visible");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Create Account";
     }
-
-    // Handle form submissions via fetch for error display
-    document.getElementById("login-form").addEventListener("submit", async function(e) {
-        e.preventDefault();
-        var form = e.target;
-        var errDiv = document.getElementById("login-errors");
-        var btn = document.getElementById("login-btn");
-        errDiv.classList.add("hidden");
-        btn.disabled = true;
-        btn.textContent = "Logging in…";
-
-        try {
-            var resp = await fetch(form.action, {
-                method: "POST",
-                body: new FormData(form),
-                redirect: "follow",
-            });
-            if (resp.redirected) {
-                window.location.replace(resp.url);
-                return;
-            }
-            if (!resp.ok) {
-                var data = await resp.json();
-                errDiv.textContent = data.detail || "Login failed";
-                errDiv.classList.remove("hidden");
-            }
-        } catch(ex) {
-            errDiv.textContent = "Network error: " + ex.message;
-            errDiv.classList.remove("hidden");
-        } finally {
-            btn.disabled = false;
-            btn.textContent = "Log In";
-        }
-    });
-
-    document.getElementById("register-form").addEventListener("submit", async function(e) {
-        e.preventDefault();
-        var form = e.target;
-        var errDiv = document.getElementById("register-errors");
-        var btn = document.getElementById("register-btn");
-        errDiv.classList.add("hidden");
-
-        // Client-side confirm password check
-        var password = document.getElementById("reg-password").value;
-        var confirm  = document.getElementById("reg-confirm").value;
-        if (password !== confirm) {
-            errDiv.textContent = "Passwords do not match.";
-            errDiv.classList.remove("hidden");
-            return;
-        }
-
-        btn.disabled = true;
-        btn.textContent = "Creating account…";
-
-        try {
-            var resp = await fetch(form.action, {
-                method: "POST",
-                body: new FormData(form),
-                redirect: "follow",
-            });
-            if (resp.redirected) {
-                window.location.replace(resp.url);
-                return;
-            }
-            if (!resp.ok) {
-                var data = await resp.json();
-                errDiv.textContent = data.detail || "Registration failed";
-                errDiv.classList.remove("hidden");
-            }
-        } catch(ex) {
-            errDiv.textContent = "Network error: " + ex.message;
-            errDiv.classList.remove("hidden");
-        } finally {
-            btn.disabled = false;
-            btn.textContent = "Create Account";
-        }
-    });
+});
 </script>
 {% endblock %}

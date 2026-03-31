@@ -1,0 +1,227 @@
+SMARTDIGEST — UI/UX DESIGN PROMPT FOR LOVABLE
+================================================
+
+Build a modern, polished frontend for SmartDigest — a smart content digest app
+that lets users subscribe to topics, fetches articles from RSS feeds, summarises
+them with AI, and delivers a curated email digest on a schedule. The backend
+already exists; you are designing and building the entire frontend that
+communicates with it via a REST API.
+
+Think of it as a personal Feedly meets Morning Brew — but the user controls
+the topics, sources, AI filtering, and delivery schedule. The audience is
+technical professionals (developers, founders, researchers) who want a clean,
+information-dense tool — not a toy.
+
+
+—————————————————————————————————————————
+1. PRODUCT OVERVIEW (what the user does)
+—————————————————————————————————————————
+
+• Register / log in with email + password.
+• Create "briefings" — each briefing is a topic (e.g. "AI Research",
+  "Startup Funding") configured with:
+    - A topic label
+    - An intent description (free-text: what they want to learn)
+    - Keywords for filtering
+    - Selected RSS sources from a curated list the app provides
+    - Optional: example articles, exclusion keywords
+    - An email address for delivery
+    - A schedule (cron — daily at a chosen hour)
+• Trigger a briefing's pipeline on demand ("Run now").
+• View past digests — each digest contains articles with AI summaries,
+  relevance scores, and links to originals.
+• Monitor pipeline health — see how many jobs ran, per-stage latency,
+  errors, and usage stats.
+
+The pipeline runs in the background: Fetch → Filter → Summarise → Deliver.
+The user never sees the pipeline directly — they see the results (digests)
+and health metrics (an observability panel).
+
+
+—————————————————————————————————————————
+2. SCREENS TO DESIGN
+—————————————————————————————————————————
+
+You have creative freedom on layout, component style, and visual hierarchy.
+Below are the screens the app needs. How you arrange them, animate them,
+and present them is up to you.
+
+a) AUTH — Login / Register
+   - Email + password form. Toggle between login and register.
+   - Register also collects a display name.
+   - On success, redirect into the app.
+
+b) DASHBOARD — The home screen once logged in
+   - The user's briefings (cards or list)
+   - Recent digests across all briefings
+   - A pipeline health / metrics area (jobs run, errors, latency)
+   - A way to create a new briefing
+
+c) CREATE / EDIT BRIEFING
+   - Could be a modal, a drawer, or a full page — your call.
+   - Fields: topic, intent description, keywords (tag input),
+     source selection (from a curated list the API provides),
+     email, schedule picker, optional example articles, optional
+     exclusion keywords.
+
+d) DIGEST DETAIL
+   - Shows articles from one digest run.
+   - Each article: title (linked to original), source name, AI summary,
+     relevance score (1–10), published date.
+   - Grouped by source or sorted by relevance — your design choice.
+
+e) METRICS / OBSERVABILITY PANEL
+   - Can be a section on the dashboard, a sidebar, or a dedicated page.
+   - Shows: total pipeline runs (24h), success/fail breakdown,
+     average latency per stage (fetch / summarise / deliver),
+     most recent error.
+   - Should feel like a lightweight ops dashboard — live and informative.
+
+
+—————————————————————————————————————————
+3. REST API REFERENCE
+—————————————————————————————————————————
+
+Base URL for local dev: http://localhost:8000
+Auth: httpOnly session cookie (set automatically on login/register).
+
+AUTHENTICATION
+  POST /auth/register     — form body: email, password, name → sets cookie, returns redirect
+  POST /auth/login        — form body: email, password → sets cookie, returns redirect
+  POST /auth/logout       — clears cookie
+
+SOURCES (public, no auth required)
+  GET /api/v1/sources     → [{ id, name, url, source_type, category, tags, description, active }]
+
+BRIEFINGS (auth required)
+  POST   /api/v1/briefings                     — create (body: topic, intent_description, keywords[], sources[], email, schedule, example_articles[]?, exclusion_keywords[]?)
+  GET    /api/v1/briefings                     → list user's active briefings
+  GET    /api/v1/briefings/{id}                → single briefing
+  PATCH  /api/v1/briefings/{id}                — partial update
+  DELETE /api/v1/briefings/{id}                — soft-delete
+  POST   /api/v1/briefings/{id}/trigger        — trigger pipeline now (rate limited 3/hr) → 202 { job_id, status }
+
+DIGESTS (auth required)
+  GET /api/v1/digests                          → list digests (has briefing_id, status, topic, item_count, timestamps)
+  GET /api/v1/digests/{id}                     → full digest with items[]: { title, item_url, source_url, summary, heuristic_score, llm_relevance_score, llm_relevance_reason, published_at, fetch_duration_ms }
+
+JOBS (auth required)
+  GET /api/v1/jobs/{job_id}                    → { job_id, status: queued|in_progress|complete|failed, result }
+
+METRICS (auth required)
+  GET /api/v1/metrics/pipeline                 → { period_hours, total_jobs, by_status, stage_avg_ms, last_error }
+  GET /api/v1/metrics/usage                    → { user_email, briefing_count, digest_count }
+
+Notes:
+  - The trigger endpoint returns 202 immediately. The pipeline runs async.
+  - Digest status values: queued | processing | delivered | failed.
+  - Sources have categories and tags — you can use these for grouping in the source picker.
+  - 429 on trigger means rate limited; the response includes retry_after.
+
+
+—————————————————————————————————————————
+4. KEY DATA SHAPES
+—————————————————————————————————————————
+
+Briefing:
+  { id, user_id, topic, intent_description, keywords[], sources[], email,
+    schedule, active, created_at, example_articles[], exclusion_keywords[] }
+
+Digest:
+  { id, briefing_id, status, created_at, delivered_at, topic, item_count }
+
+Digest Item:
+  { id, title, item_url, source_url, raw_content, summary,
+    heuristic_score (0-1), llm_relevance_score (1-10),
+    llm_relevance_reason, fetch_duration_ms, published_at }
+
+Curated Source:
+  { id, name, url, source_type, category, tags[], description, active }
+
+Pipeline Metrics:
+  { period_hours, total_jobs, by_status: { done, failed, ... },
+    stage_avg_ms: { fetch, summarise, deliver }, last_error: { stage, msg, at } }
+
+Schedule options (cron strings the backend accepts):
+  "0 6 * * *"   → Daily 6 AM UTC
+  "0 7 * * *"   → Daily 7 AM UTC
+  "0 8 * * *"   → Daily 8 AM UTC
+  "0 12 * * *"  → Daily noon UTC
+  "0 18 * * *"  → Daily 6 PM UTC
+  Display these in the user's local timezone.
+
+
+—————————————————————————————————————————
+5. DESIGN DIRECTION (creative freedom)
+—————————————————————————————————————————
+
+This is a tool for technical professionals. It should feel:
+  - Sophisticated and information-dense, not bubbly or playful
+  - Fast and focused — minimal clicks to do anything
+  - Dashboard-like — think Linear, Vercel Dashboard, Raycast
+  - Dark mode is strongly preferred (light mode optional)
+
+Beyond that, you have full creative license:
+  - Choose your own color palette, typography, spacing, radius
+  - Decide the navigation pattern (sidebar, topbar, tabs, etc.)
+  - Decide how briefings are displayed (cards, table rows, list)
+  - Decide how the create-briefing flow works (modal, page, stepper, drawer)
+  - Decide how metrics are visualised (numbers, charts, bars, sparklines)
+  - Add micro-interactions, transitions, loading states as you see fit
+  - Choose how to handle empty states, error states, and success feedback
+
+Do NOT just make a generic dashboard. Give this product its own visual identity.
+
+
+—————————————————————————————————————————
+6. UX DETAILS THAT MATTER
+—————————————————————————————————————————
+
+• Source picker: The curated sources come from the API. Sources have
+  categories and tags. Let the user browse/filter/search them — don't
+  just dump a flat checkbox list. Make it feel curated.
+
+• Keyword input: Users enter multiple keywords. Use a tag-style input
+  (type, press enter, see pills). Same for exclusion keywords.
+
+• Trigger button: When the user clicks "Run now" on a briefing, show
+  that the job is queued. Optionally poll the job status endpoint
+  to show progress. Handle the 429 rate-limit gracefully.
+
+• Schedule picker: Show times in the user's local timezone (the API
+  stores UTC cron strings; convert for display).
+
+• Digest reading experience: This is the payoff. The user should enjoy
+  reading their digest. Summaries should be scannable. Relevance scores
+  should be visible but not overwhelming. Link to originals should be
+  obvious.
+
+• Metrics should auto-refresh or be easy to refresh. This is the "ops"
+  part of the app — it should feel alive.
+
+• Responsive: Should work well on desktop. Mobile is a nice-to-have,
+  not a requirement.
+
+• Status badges: Digests have statuses (queued, processing, delivered,
+  failed). Use color-coded badges consistently.
+
+
+—————————————————————————————————————————
+7. TECHNICAL NOTES
+—————————————————————————————————————————
+
+• Auth is cookie-based (httpOnly). After login/register, the browser
+  automatically sends the session cookie on all subsequent requests.
+  No need to manage tokens in JS — just call the API and cookies flow.
+
+• The auth endpoints accept form data (not JSON). All other endpoints
+  use JSON request/response bodies.
+
+• For the login/register flow, POST to /auth/register or /auth/login
+  with form data. On success the backend sets a cookie and the client
+  should navigate to the dashboard.
+
+• CORS: For local dev the frontend and backend may be on different
+  ports. The backend should be configured to allow your dev origin.
+
+• The app name is "SmartDigest". Use this in the header/branding.

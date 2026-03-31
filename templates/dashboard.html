@@ -2,443 +2,333 @@
 
 {% block title %}Dashboard — SmartDigest{% endblock %}
 
-{% block nav_actions %}
-<button onclick="openCreateModal()"
-    class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 font-medium transition-colors">
-    + New Briefing
-</button>
-{% endblock %}
-
-{% block nav_actions_mobile %}
-<button onclick="openCreateModal(); toggleMobileMenu();"
-    class="w-full text-left text-sm font-medium text-blue-600 hover:bg-blue-50 px-3 py-2 rounded-lg transition-colors">
-    + New Briefing
-</button>
-{% endblock %}
-
 {% block content %}
-<div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-6">
-
-    <!-- Left panel -->
-    <div class="md:col-span-2 lg:col-span-3 space-y-6">
-
-        <!-- Briefing cards -->
-        <section>
-            <h2 class="text-lg font-semibold text-gray-800 mb-3">Briefings</h2>
-            <div id="briefing-list" class="space-y-3">
-                {% if briefings %}
-                    {% for briefing in briefings %}
-                        {% include "partials/briefing_card.html" %}
-                    {% endfor %}
-                {% else %}
-                    <div class="bg-white rounded-lg border border-gray-200 p-8 text-center">
-                        <div class="text-4xl mb-3">📭</div>
-                        <p class="text-gray-500 mb-1">No briefings yet.</p>
-                        <p class="text-xs text-gray-400 mb-4">Create a briefing to start receiving curated digests.</p>
-                        <button onclick="openCreateModal()"
-                            class="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-sm font-medium transition-colors">
-                            Create your first briefing <span aria-hidden="true">→</span>
-                        </button>
-                    </div>
-                {% endif %}
-            </div>
-        </section>
-
-        <!-- Recent digests -->
-        <section>
-            <h2 class="text-lg font-semibold text-gray-800 mb-3">Recent Digests</h2>
-            <div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
-                {% if digests %}
-                <!-- Desktop table (hidden on mobile) -->
-                <div class="hidden sm:block overflow-x-auto">
-                    <table class="w-full text-sm">
-                        <thead class="bg-gray-50 border-b">
-                            <tr>
-                                <th class="text-left px-4 py-2.5 font-medium text-gray-600">Topic</th>
-                                <th class="text-left px-4 py-2.5 font-medium text-gray-600">Created</th>
-                                <th class="text-left px-4 py-2.5 font-medium text-gray-600">Status</th>
-                                <th class="text-left px-4 py-2.5 font-medium text-gray-600">Items</th>
-                                <th class="text-left px-4 py-2.5 font-medium text-gray-600"></th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            {% for d in digests %}
-                            {% include "partials/digest_row.html" %}
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                <!-- Mobile card layout -->
-                <div class="sm:hidden divide-y divide-gray-100">
-                    {% for d in digests %}
-                    <a href="/digests/{{ d.id }}" class="block px-4 py-3 hover:bg-gray-50 transition-colors">
-                        <div class="flex items-center justify-between mb-1">
-                            <span class="font-medium text-gray-800 text-sm truncate mr-2">{{ d.topic or "—" }}</span>
-                            {% if d.status == "delivered" %}
-                            <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex-shrink-0">delivered</span>
-                            {% elif d.status == "processing" %}
-                            <span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full flex-shrink-0">processing</span>
-                            {% elif d.status == "failed" %}
-                            <span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full flex-shrink-0">failed</span>
-                            {% else %}
-                            <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full flex-shrink-0">{{ d.status }}</span>
-                            {% endif %}
-                        </div>
-                        <div class="flex items-center gap-3 text-xs text-gray-500">
-                            <span>{{ d.created_at.strftime('%b %d, %H:%M') if d.created_at else "—" }}</span>
-                            <span>{{ d.item_count or 0 }} items</span>
-                        </div>
-                    </a>
-                    {% endfor %}
-                </div>
-                {% else %}
-                <div class="p-8 text-center">
-                    <div class="text-3xl mb-2">📄</div>
-                    <p class="text-gray-500">No digests yet. Trigger a pipeline run to get started.</p>
-                </div>
-                {% endif %}
-            </div>
-        </section>
-    </div>
-
-    <!-- Right panel: Pipeline health -->
-    <div class="md:col-span-1 lg:col-span-2">
-        <h2 class="text-lg font-semibold text-gray-800 mb-3">Pipeline Health</h2>
-        <div
-            hx-get="/dashboard/metrics"
-            hx-trigger="load, every 5s"
-            hx-swap="innerHTML"
-            class="bg-white rounded-lg border border-gray-200 p-4"
-        >
-            <div class="animate-pulse space-y-3">
-                <div class="h-4 bg-gray-200 rounded w-3/4"></div>
-                <div class="h-4 bg-gray-200 rounded w-1/2"></div>
-                <div class="h-4 bg-gray-200 rounded w-2/3"></div>
-            </div>
-        </div>
-    </div>
+<div class="header">
+  <div><h1>Dashboard</h1><p class="subtitle">Manage your content briefings</p></div>
+  <button class="btn btn-primary" onclick="openCreateModal()">+ New Briefing</button>
 </div>
 
-<!-- Create briefing modal -->
-<div id="create-modal" class="hidden fixed inset-0 z-40 flex items-end sm:items-center justify-center modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-    <div class="bg-white rounded-t-2xl sm:rounded-xl shadow-xl border border-gray-200 w-full sm:max-w-lg sm:mx-4 p-5 sm:p-6 max-h-[92vh] overflow-y-auto" onclick="event.stopPropagation()">
-        <!-- Drag handle for mobile -->
-        <div class="sm:hidden flex justify-center mb-3">
-            <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
-        </div>
-        <div class="flex justify-between items-center mb-4">
-            <h3 id="modal-title" class="text-lg font-semibold text-gray-800">New Briefing</h3>
-            <button onclick="closeCreateModal()" aria-label="Close modal"
-                class="text-gray-400 hover:text-gray-600 text-xl leading-none p-1">&times;</button>
-        </div>
+<!-- Pipeline metrics summary (HTMX polled) -->
+<div id="metrics-grid" class="grid-4"
+     hx-get="/dashboard/metrics"
+     hx-trigger="load, every 5s"
+     hx-swap="innerHTML">
+  <!-- Skeleton while loading -->
+  <div class="metric-card"><div class="label" style="height:16px;background:var(--secondary);border-radius:4px;width:60%"></div><div class="value" style="height:24px;background:var(--secondary);border-radius:4px;width:40%;margin-top:8px"></div></div>
+  <div class="metric-card"><div class="label" style="height:16px;background:var(--secondary);border-radius:4px;width:60%"></div><div class="value" style="height:24px;background:var(--secondary);border-radius:4px;width:40%;margin-top:8px"></div></div>
+  <div class="metric-card"><div class="label" style="height:16px;background:var(--secondary);border-radius:4px;width:60%"></div><div class="value" style="height:24px;background:var(--secondary);border-radius:4px;width:40%;margin-top:8px"></div></div>
+  <div class="metric-card"><div class="label" style="height:16px;background:var(--secondary);border-radius:4px;width:60%"></div><div class="value" style="height:24px;background:var(--secondary);border-radius:4px;width:40%;margin-top:8px"></div></div>
+</div>
 
-        <form id="create-form" class="space-y-4">
-            <!-- Topic Label -->
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Topic Label</label>
-                <input type="text" name="topic" required placeholder="e.g. AI in Healthcare"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                <p class="text-xs text-gray-400 mt-1">Short name for this briefing</p>
-            </div>
-
-            <!-- Intent Description -->
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">What do you want to learn or track?</label>
-                <textarea name="intent_description" required rows="3"
-                    placeholder="e.g. I want to track practical applications of LLMs in clinical healthcare settings, especially NLP for medical records and diagnostic AI tools..."
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"></textarea>
-                <p class="text-xs text-gray-400 mt-1">Be specific — this guides what articles are selected and how they're summarised (min 20 chars)</p>
-            </div>
-
-            <!-- Keywords -->
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Keywords</label>
-                <input type="text" name="keywords" required
-                    placeholder="LLM, clinical NLP, medical AI, diagnostics"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                <p class="text-xs text-gray-400 mt-1">Comma-separated keywords for filtering articles</p>
-            </div>
-
-            <!-- Exclusion Keywords (optional) -->
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Exclude these topics <span class="text-gray-400">(optional)</span></label>
-                <input type="text" name="exclusion_keywords"
-                    placeholder="e.g. cryptocurrency, gaming, social media"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                <p class="text-xs text-gray-400 mt-1">Comma-separated topics to skip entirely</p>
-            </div>
-
-            <!-- Example Articles (optional) -->
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Example of a useful article <span class="text-gray-400">(optional)</span></label>
-                <input type="text" name="example_articles"
-                    placeholder="e.g. How GPT-4 is transforming radiology workflows"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                <p class="text-xs text-gray-400 mt-1">A title or URL of an article you'd want in this briefing</p>
-            </div>
-
-            <!-- Sources (checkboxes) -->
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Sources (select at least 1)</label>
-                <div class="max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-3 space-y-2">
-                    {% for source in sources %}
-                    <label class="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 p-1 rounded">
-                        <input type="checkbox" name="sources" value="{{ source.url }}"
-                            class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-                        <span>{{ source.name }}</span>
-                        {% if source.category %}
-                        <span class="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{{ source.category }}</span>
-                        {% endif %}
-                    </label>
-                    {% endfor %}
-                </div>
-            </div>
-
-            <!-- Email -->
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Delivery Email</label>
-                <input type="email" name="email" required placeholder="you@example.com"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-            </div>
-
-            <!-- Schedule -->
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Schedule</label>
-                <select name="schedule" id="schedule-select"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <option value="0 7 * * *"  data-utc-hour="7">Daily 7:00 AM UTC</option>
-                    <option value="0 6 * * *"  data-utc-hour="6">Daily 6:00 AM UTC</option>
-                    <option value="0 8 * * *"  data-utc-hour="8">Daily 8:00 AM UTC</option>
-                    <option value="0 12 * * *" data-utc-hour="12">Daily 12:00 PM UTC</option>
-                    <option value="0 18 * * *" data-utc-hour="18">Daily 6:00 PM UTC</option>
-                </select>
-                <p id="tz-hint" class="text-xs text-gray-400 mt-1">Times shown in UTC</p>
-            </div>
-
-            <!-- Validation error area -->
-            <div id="create-errors" class="hidden text-red-600 text-sm"></div>
-
-            <!-- Submit -->
-            <button type="submit" id="create-btn"
-                class="w-full bg-blue-600 text-white py-2.5 px-4 rounded-lg hover:bg-blue-700 font-medium text-sm transition-colors">
-                Create Briefing
-            </button>
-        </form>
+<!-- Briefings section -->
+<div class="section-label">Your Briefings</div>
+<div id="briefing-list" class="grid-cards" style="margin-bottom:32px">
+  {% if briefings %}
+    {% for briefing in briefings %}
+      {% include "partials/briefing_card.html" %}
+    {% endfor %}
+  {% else %}
+    <div class="card" style="grid-column:1/-1;text-align:center;padding:48px 16px;">
+      <div style="font-size:32px;margin-bottom:12px;">📭</div>
+      <p style="color:var(--muted-fg);margin-bottom:4px;">No briefings yet.</p>
+      <p style="font-size:12px;color:var(--muted-fg);margin-bottom:16px;">Create a briefing to start receiving curated digests.</p>
+      <button onclick="openCreateModal()" class="btn btn-primary btn-sm">Create your first briefing →</button>
     </div>
+  {% endif %}
+</div>
+
+<!-- Recent digests -->
+<div class="section-header">
+  <div class="section-label" style="margin-bottom:0">Recent Digests</div>
+  <a href="/digests" class="view-all">View all</a>
+</div>
+{% if digests %}
+  {% for d in digests %}
+    {% include "partials/digest_row.html" %}
+  {% endfor %}
+{% else %}
+  <div class="card" style="text-align:center;padding:48px 16px;">
+    <div style="font-size:32px;margin-bottom:12px;">📄</div>
+    <p style="color:var(--muted-fg);">No digests yet. Trigger a pipeline run to get started.</p>
+  </div>
+{% endif %}
+
+<!-- Create briefing modal -->
+<div id="create-modal" class="modal-backdrop" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 id="modal-title" style="font-size:16px;font-weight:600;">New Briefing</h3>
+      <button onclick="closeCreateModal()" aria-label="Close modal" style="background:none;color:var(--muted-fg);font-size:20px;cursor:pointer;padding:4px;line-height:1;font-family:inherit;">&times;</button>
+    </div>
+
+    <form id="create-form" style="display:flex;flex-direction:column;gap:16px;">
+      <!-- Topic Label -->
+      <div class="form-group">
+        <label class="form-label">Topic Label</label>
+        <input type="text" name="topic" required placeholder="e.g. AI in Healthcare" class="form-input">
+        <p style="font-size:11px;color:var(--muted-fg);margin-top:4px;">Short name for this briefing</p>
+      </div>
+
+      <!-- Intent Description -->
+      <div class="form-group">
+        <label class="form-label">What do you want to learn or track?</label>
+        <textarea name="intent_description" required rows="3"
+            placeholder="e.g. I want to track practical applications of LLMs in clinical healthcare settings..."
+            class="form-input" style="resize:vertical;min-height:72px;"></textarea>
+        <p style="font-size:11px;color:var(--muted-fg);margin-top:4px;">Be specific — this guides article selection and summarisation (min 20 chars)</p>
+      </div>
+
+      <!-- Keywords -->
+      <div class="form-group">
+        <label class="form-label">Keywords</label>
+        <input type="text" name="keywords" required placeholder="LLM, clinical NLP, medical AI" class="form-input">
+        <p style="font-size:11px;color:var(--muted-fg);margin-top:4px;">Comma-separated keywords for filtering</p>
+      </div>
+
+      <!-- Exclusion Keywords -->
+      <div class="form-group">
+        <label class="form-label">Exclude these topics <span style="color:var(--muted-fg);">(optional)</span></label>
+        <input type="text" name="exclusion_keywords" placeholder="e.g. cryptocurrency, gaming" class="form-input">
+      </div>
+
+      <!-- Example Articles -->
+      <div class="form-group">
+        <label class="form-label">Example of a useful article <span style="color:var(--muted-fg);">(optional)</span></label>
+        <input type="text" name="example_articles" placeholder="e.g. How GPT-4 is transforming radiology workflows" class="form-input">
+      </div>
+
+      <!-- Sources -->
+      <div class="form-group">
+        <label class="form-label">Sources (select at least 1)</label>
+        <div style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);padding:8px;display:flex;flex-direction:column;gap:6px;">
+          {% for source in sources %}
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:4px;border-radius:4px;transition:background 0.1s;">
+            <input type="checkbox" name="sources" value="{{ source.url }}" style="accent-color:var(--primary);width:14px;height:14px;">
+            <span>{{ source.name }}</span>
+            {% if source.category %}
+            <span class="tag">{{ source.category }}</span>
+            {% endif %}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Email -->
+      <div class="form-group">
+        <label class="form-label">Delivery Email</label>
+        <input type="email" name="email" required placeholder="you@example.com" class="form-input">
+      </div>
+
+      <!-- Schedule -->
+      <div class="form-group">
+        <label class="form-label">Schedule</label>
+        <select name="schedule" id="schedule-select" class="form-input">
+          <option value="0 7 * * *"  data-utc-hour="7">Daily 7:00 AM UTC</option>
+          <option value="0 6 * * *"  data-utc-hour="6">Daily 6:00 AM UTC</option>
+          <option value="0 8 * * *"  data-utc-hour="8">Daily 8:00 AM UTC</option>
+          <option value="0 12 * * *" data-utc-hour="12">Daily 12:00 PM UTC</option>
+          <option value="0 18 * * *" data-utc-hour="18">Daily 6:00 PM UTC</option>
+        </select>
+        <p id="tz-hint" style="font-size:11px;color:var(--muted-fg);margin-top:4px;">Times shown in UTC</p>
+      </div>
+
+      <!-- Validation error area -->
+      <div id="create-errors" class="form-error"></div>
+
+      <!-- Submit -->
+      <button type="submit" id="create-btn" class="btn btn-primary" style="width:100%;justify-content:center;">
+        Create Briefing
+      </button>
+    </form>
+  </div>
 </div>
 
 <script>
-    /* ---- Modal helpers ---- */
-    function openCreateModal() {
-        document.getElementById("create-modal").classList.remove("hidden");
-        // Focus the first input after a tick
-        setTimeout(function() {
-            var firstInput = document.querySelector("#create-form input:first-of-type");
-            if (firstInput) firstInput.focus();
-        }, 100);
-    }
-    function closeCreateModal() {
-        document.getElementById("create-modal").classList.add("hidden");
-    }
+/* ---- Modal helpers ---- */
+function openCreateModal() {
+    document.getElementById("create-modal").style.display = "flex";
+    setTimeout(function() {
+        var firstInput = document.querySelector("#create-form input:first-of-type");
+        if (firstInput) firstInput.focus();
+    }, 100);
+}
+function closeCreateModal() {
+    document.getElementById("create-modal").style.display = "none";
+}
 
-    // Close modal on backdrop click
-    document.getElementById("create-modal").addEventListener("click", function(e) {
-        if (e.target === this) closeCreateModal();
-    });
+// Close modal on backdrop click
+document.getElementById("create-modal").addEventListener("click", function(e) {
+    if (e.target === this) closeCreateModal();
+});
 
-    /* ---- Timezone localization ---- */
-    (function() {
-        try {
-            var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-            var tzAbbr = new Intl.DateTimeFormat("en", { timeZoneName: "short" })
-                .formatToParts(new Date())
-                .find(function(p) { return p.type === "timeZoneName"; }).value;
+// Close modal on Escape
+document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape") closeCreateModal();
+});
 
-            // Convert a UTC hour (0-23) to a localized time string e.g. "7:00 AM"
-            function utcHourToLocal(utcHour) {
-                var now = new Date();
-                var d = new Date(Date.UTC(
-                    now.getFullYear(), now.getMonth(), now.getDate(),
-                    utcHour, 0, 0
-                ));
-                return d.toLocaleTimeString("en-US", {
-                    hour: "numeric",
-                    minute: "2-digit",
-                    timeZone: tz,
-                    hour12: true
-                });
-            }
+/* ---- Timezone localization ---- */
+(function() {
+    try {
+        var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        var tzAbbr = new Intl.DateTimeFormat("en", { timeZoneName: "short" })
+            .formatToParts(new Date())
+            .find(function(p) { return p.type === "timeZoneName"; }).value;
 
-            // Parse "0 H * * *" cron and return a human label in local time
-            function cronToLocal(cron) {
-                var parts = cron.trim().split(/\s+/);
-                if (parts.length === 5 &&
-                    parts[0] === "0" && parts[2] === "*" &&
-                    parts[3] === "*" && parts[4] === "*") {
-                    var h = parseInt(parts[1], 10);
-                    if (!isNaN(h)) {
-                        return "Daily " + utcHourToLocal(h) + " " + tzAbbr;
-                    }
-                }
-                return cron; // fallback: show raw cron
-            }
-
-            // Re-label the schedule dropdown
-            var select = document.getElementById("schedule-select");
-            if (select) {
-                Array.from(select.options).forEach(function(opt) {
-                    var h = parseInt(opt.dataset.utcHour, 10);
-                    if (!isNaN(h)) {
-                        opt.textContent = "Daily " + utcHourToLocal(h) + " " + tzAbbr;
-                    }
-                });
-            }
-
-            // Update the timezone hint label
-            var hint = document.getElementById("tz-hint");
-            if (hint) {
-                hint.textContent = "Times are in your timezone: " + tz;
-            }
-
-            // Re-label every cron span in briefing / subscription cards
-            document.querySelectorAll(".cron-schedule").forEach(function(el) {
-                el.textContent = cronToLocal(el.dataset.cron || "");
-            });
-
-        } catch (e) {
-            // Fail silently — UTC labels remain as fallback
+        function utcHourToLocal(utcHour) {
+            var now = new Date();
+            var d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), utcHour, 0, 0));
+            return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: tz, hour12: true });
         }
-    })();
 
-    // Trigger pipeline — cookie-based auth
-    async function triggerPipeline(briefingId) {
-        var btn = document.getElementById("trigger-btn-" + briefingId);
-        btn.textContent = "⏳ Queuing...";
-        btn.disabled = true;
-
-        try {
-            var resp = await fetch("/api/v1/briefings/" + briefingId + "/trigger", {
-                method: "POST",
-            });
-            if (resp.ok) {
-                showToast("Pipeline queued successfully!", "success");
-            } else if (resp.status === 429) {
-                showToast("Rate limit reached. Try again later.", "warning");
-            } else if (resp.status === 401) {
-                window.location.href = "/login";
-                return;
-            } else {
-                var errText = await resp.text();
-                var detail = "Failed to trigger";
-                try { detail = JSON.parse(errText).detail || detail; } catch(_) {}
-                showToast(detail, "error");
+        function cronToLocal(cron) {
+            var parts = cron.trim().split(/\s+/);
+            if (parts.length === 5 && parts[0] === "0" && parts[2] === "*" && parts[3] === "*" && parts[4] === "*") {
+                var h = parseInt(parts[1], 10);
+                if (!isNaN(h)) return "Daily " + utcHourToLocal(h) + " " + tzAbbr;
             }
-        } catch(ex) {
-            showToast("Network error: " + ex.message, "error");
-        } finally {
-            btn.textContent = "▶ Trigger Now";
-            btn.disabled = false;
+            return cron;
         }
-    }
 
-    // Delete briefing — cookie-based auth
-    async function deleteBriefing(briefingId) {
-        if (!confirm("Delete this briefing?")) return;
-
-        try {
-            var resp = await fetch("/api/v1/briefings/" + briefingId, {
-                method: "DELETE",
+        var select = document.getElementById("schedule-select");
+        if (select) {
+            Array.from(select.options).forEach(function(opt) {
+                var h = parseInt(opt.dataset.utcHour, 10);
+                if (!isNaN(h)) opt.textContent = "Daily " + utcHourToLocal(h) + " " + tzAbbr;
             });
-            if (resp.ok) {
-                showToast("Briefing deleted.", "success");
-                var card = document.getElementById("briefing-card-" + briefingId);
-                if (card) card.remove();
-            } else if (resp.status === 401) {
-                window.location.href = "/login";
-            } else {
-                showToast("Failed to delete.", "error");
-            }
-        } catch(ex) {
-            showToast("Network error: " + ex.message, "error");
         }
-    }
 
-    // Handle create form submission
-    document.getElementById("create-form").addEventListener("submit", async function(e) {
-        e.preventDefault();
-        var form = e.target;
-        var errDiv = document.getElementById("create-errors");
-        errDiv.classList.add("hidden");
+        var hint = document.getElementById("tz-hint");
+        if (hint) hint.textContent = "Times are in your timezone: " + tz;
 
-        var topic = form.topic.value.trim();
-        var intentDescription = form.intent_description.value.trim();
-        var keywordsRaw = form.keywords.value.trim();
-        var email = form.email.value.trim();
-        var schedule = form.schedule.value;
+        document.querySelectorAll(".cron-schedule").forEach(function(el) {
+            el.textContent = cronToLocal(el.dataset.cron || "");
+        });
+    } catch (e) {}
+})();
 
-        var checked = form.querySelectorAll('input[name="sources"]:checked');
-        var sources = Array.from(checked).map(function(c) { return c.value; });
+/* ---- Trigger pipeline ---- */
+async function triggerPipeline(briefingId) {
+    var btn = document.getElementById("trigger-btn-" + briefingId);
+    btn.textContent = "⏳ Queuing...";
+    btn.disabled = true;
 
-        // Parse comma-separated keywords
-        var keywords = keywordsRaw.split(",").map(function(k) { return k.trim(); }).filter(Boolean);
-
-        // Parse optional fields
-        var exclusionRaw = (form.exclusion_keywords.value || "").trim();
-        var exclusionKeywords = exclusionRaw ? exclusionRaw.split(",").map(function(k) { return k.trim(); }).filter(Boolean) : [];
-
-        var exampleRaw = (form.example_articles.value || "").trim();
-        var exampleArticles = exampleRaw ? [exampleRaw] : [];
-
-        if (!topic || !intentDescription || keywords.length === 0 || !email || sources.length === 0) {
-            errDiv.textContent = "Please fill in Topic, Intent, Keywords, Email, and select at least one source.";
-            errDiv.classList.remove("hidden");
+    try {
+        var resp = await fetch("/api/v1/briefings/" + briefingId + "/trigger", { method: "POST" });
+        if (resp.ok) {
+            showToast("Pipeline queued successfully!", "success");
+        } else if (resp.status === 429) {
+            showToast("Rate limit reached. Try again later.", "warning");
+        } else if (resp.status === 401) {
+            window.location.href = "/login";
             return;
+        } else {
+            var errText = await resp.text();
+            var detail = "Failed to trigger";
+            try { detail = JSON.parse(errText).detail || detail; } catch(_) {}
+            showToast(detail, "error");
         }
+    } catch(ex) {
+        showToast("Network error: " + ex.message, "error");
+    } finally {
+        btn.textContent = "▶ Run now";
+        btn.disabled = false;
+    }
+}
 
-        if (intentDescription.length < 20) {
-            errDiv.textContent = "Intent description must be at least 20 characters. Be specific about what you want to track.";
-            errDiv.classList.remove("hidden");
-            return;
+/* ---- Delete briefing ---- */
+async function deleteBriefing(briefingId) {
+    if (!confirm("Delete this briefing?")) return;
+
+    try {
+        var resp = await fetch("/api/v1/briefings/" + briefingId, { method: "DELETE" });
+        if (resp.ok) {
+            showToast("Briefing deleted.", "success");
+            var card = document.getElementById("briefing-card-" + briefingId);
+            if (card) card.remove();
+        } else if (resp.status === 401) {
+            window.location.href = "/login";
+        } else {
+            showToast("Failed to delete.", "error");
         }
+    } catch(ex) {
+        showToast("Network error: " + ex.message, "error");
+    }
+}
 
-        var btn = document.getElementById("create-btn");
-        btn.disabled = true;
-        btn.textContent = "Creating...";
+/* ---- Create form submission ---- */
+document.getElementById("create-form").addEventListener("submit", async function(e) {
+    e.preventDefault();
+    var form = e.target;
+    var errDiv = document.getElementById("create-errors");
+    errDiv.classList.remove("visible");
 
-        try {
-            var resp = await fetch("/api/v1/briefings", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    topic: topic,
-                    intent_description: intentDescription,
-                    keywords: keywords,
-                    sources: sources,
-                    email: email,
-                    schedule: schedule,
-                    exclusion_keywords: exclusionKeywords.length > 0 ? exclusionKeywords : null,
-                    example_articles: exampleArticles.length > 0 ? exampleArticles : null,
-                })
-            });
+    var topic = form.topic.value.trim();
+    var intentDescription = form.intent_description.value.trim();
+    var keywordsRaw = form.keywords.value.trim();
+    var email = form.email.value.trim();
+    var schedule = form.schedule.value;
 
-            if (resp.ok) {
-                document.getElementById("create-modal").classList.add("hidden");
-                showToast("Briefing created!", "success");
-                location.reload();
-            } else if (resp.status === 401) {
-                window.location.href = "/login";
-            } else {
-                var data = await resp.json();
-                errDiv.textContent = data.detail || JSON.stringify(data);
-                errDiv.classList.remove("hidden");
-            }
-        } catch(ex) {
-            errDiv.textContent = "Network error: " + ex.message;
-            errDiv.classList.remove("hidden");
-        } finally {
-            btn.disabled = false;
-            btn.textContent = "Create Briefing";
+    var checked = form.querySelectorAll('input[name="sources"]:checked');
+    var sources = Array.from(checked).map(function(c) { return c.value; });
+
+    var keywords = keywordsRaw.split(",").map(function(k) { return k.trim(); }).filter(Boolean);
+
+    var exclusionRaw = (form.exclusion_keywords.value || "").trim();
+    var exclusionKeywords = exclusionRaw ? exclusionRaw.split(",").map(function(k) { return k.trim(); }).filter(Boolean) : [];
+
+    var exampleRaw = (form.example_articles.value || "").trim();
+    var exampleArticles = exampleRaw ? [exampleRaw] : [];
+
+    if (!topic || !intentDescription || keywords.length === 0 || !email || sources.length === 0) {
+        errDiv.textContent = "Please fill in Topic, Intent, Keywords, Email, and select at least one source.";
+        errDiv.classList.add("visible");
+        return;
+    }
+
+    if (intentDescription.length < 20) {
+        errDiv.textContent = "Intent description must be at least 20 characters. Be specific about what you want to track.";
+        errDiv.classList.add("visible");
+        return;
+    }
+
+    var btn = document.getElementById("create-btn");
+    btn.disabled = true;
+    btn.textContent = "Creating...";
+
+    try {
+        var resp = await fetch("/api/v1/briefings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                topic: topic,
+                intent_description: intentDescription,
+                keywords: keywords,
+                sources: sources,
+                email: email,
+                schedule: schedule,
+                exclusion_keywords: exclusionKeywords.length > 0 ? exclusionKeywords : null,
+                example_articles: exampleArticles.length > 0 ? exampleArticles : null,
+            })
+        });
+
+        if (resp.ok) {
+            closeCreateModal();
+            showToast("Briefing created!", "success");
+            location.reload();
+        } else if (resp.status === 401) {
+            window.location.href = "/login";
+        } else {
+            var data = await resp.json();
+            errDiv.textContent = data.detail || JSON.stringify(data);
+            errDiv.classList.add("visible");
         }
-    });
+    } catch(ex) {
+        errDiv.textContent = "Network error: " + ex.message;
+        errDiv.classList.add("visible");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Create Briefing";
+    }
+});
 </script>
 {% endblock %}

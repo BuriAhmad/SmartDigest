@@ -1,0 +1,98 @@
+<!-- Full metrics page content (HTMX polled) -->
+<div class="grid-4">
+  <div class="metric-card">
+    <div class="label">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Total jobs
+    </div>
+    <div class="value">{{ metrics.total_jobs }}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      Completed
+    </div>
+    <div class="value success">{{ metrics.by_status.done }}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--destructive)" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      Failed
+    </div>
+    <div class="value destructive">{{ metrics.by_status.failed }}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+      Briefings
+    </div>
+    <div class="value">{{ usage.briefing_count }}</div>
+  </div>
+</div>
+
+<div class="section-label">Average Latency per Stage</div>
+<div class="grid-3" style="margin-bottom:32px">
+  {% set max_ms = 5000 %}
+  {% for stage_name, ms_val in metrics.stage_avg_ms.items() %}
+  <div class="latency-card">
+    <div class="top">
+      <span class="stage-name">{{ stage_name }}</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted-fg)" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    </div>
+    <span class="val">{{ ms_val }}</span><span class="unit">ms</span>
+    <div class="progress-bar">
+      <div class="progress-fill" style="width:{{ [ms_val / max_ms * 100, 100] | min | int }}%"></div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="section-label">Jobs by Status</div>
+<div class="card" style="margin-bottom:32px">
+  {% set total = metrics.total_jobs or 1 %}
+  {% set done_pct = (metrics.by_status.done / total * 100) | round(1) %}
+  {% set failed_pct = (metrics.by_status.failed / total * 100) | round(1) %}
+  {% set other_pct = [100 - done_pct - failed_pct, 0] | max %}
+  <div class="status-bar">
+    {% if done_pct > 0 %}<div class="seg-done" style="width:{{ done_pct }}%"></div>{% endif %}
+    {% if failed_pct > 0 %}<div class="seg-failed" style="width:{{ failed_pct }}%"></div>{% endif %}
+    {% if other_pct > 0 %}<div class="seg-queued" style="width:{{ other_pct }}%"></div>{% endif %}
+  </div>
+  <div class="status-legend">
+    <div><span>done</span> <span>{{ metrics.by_status.done }}</span></div>
+    <div><span>failed</span> <span>{{ metrics.by_status.failed }}</span></div>
+  </div>
+</div>
+
+<div class="section-label">Most Recent Error</div>
+{% if metrics.last_error %}
+<div class="error-box" style="margin-bottom:32px">
+  <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+  <div>
+    <div class="stage">Stage: {{ metrics.last_error.stage }}</div>
+    <p class="msg">{{ metrics.last_error.msg }}</p>
+    <p class="ts">{{ metrics.last_error.at }}</p>
+  </div>
+</div>
+{% else %}
+<div class="card" style="margin-bottom:32px;text-align:center;padding:24px;">
+  <span style="font-size:20px;">🎉</span>
+  <p style="color:var(--muted-fg);margin-top:4px;">No errors in the last 24 hours!</p>
+</div>
+{% endif %}
+
+<div class="section-label">Usage</div>
+<div class="grid-3">
+  <div class="metric-card">
+    <div class="label">Email</div>
+    <div style="font-size:14px;font-weight:500;margin-top:4px;overflow:hidden;text-overflow:ellipsis">{{ usage.user_email }}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Briefings</div>
+    <div class="value">{{ usage.briefing_count }}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Digests generated</div>
+    <div class="value">{{ usage.digest_count }}</div>
+  </div>
+</div>

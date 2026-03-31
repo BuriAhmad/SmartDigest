@@ -1,54 +1,29 @@
-<div class="space-y-4">
-    <!-- Job counts -->
-    <div>
-        <h4 class="text-sm font-medium text-gray-600 mb-2">Last 24 Hours</h4>
-        <div class="grid grid-cols-3 gap-2">
-            <div class="text-center p-2.5 bg-gray-50 rounded-lg">
-                <div class="text-lg font-bold text-gray-800">{{ metrics.total_jobs }}</div>
-                <div class="text-xs text-gray-500">Total</div>
-            </div>
-            <div class="text-center p-2.5 bg-green-50 rounded-lg">
-                <div class="text-lg font-bold text-green-700">{{ metrics.by_status.done }}</div>
-                <div class="text-xs text-gray-500">Done</div>
-            </div>
-            <div class="text-center p-2.5 bg-red-50 rounded-lg">
-                <div class="text-lg font-bold text-red-700">{{ metrics.by_status.failed }}</div>
-                <div class="text-xs text-gray-500">Failed</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Stage latency -->
-    <div>
-        <h4 class="text-sm font-medium text-gray-600 mb-2">Avg Latency (ms)</h4>
-        <div class="space-y-2">
-            {% for stage, ms in metrics.stage_avg_ms.items() %}
-            <div>
-                <div class="flex justify-between text-xs mb-1">
-                    <span class="text-gray-600 capitalize">{{ stage }}</span>
-                    <span class="font-mono text-gray-800">{{ ms }}ms</span>
-                </div>
-                <div class="w-full bg-gray-100 rounded-full h-2">
-                    {% set max_ms = 5000 %}
-                    {% set width = [ms / max_ms * 100, 100] | min %}
-                    <div class="bg-blue-500 h-2 rounded-full" style="width: {{ width }}%"></div>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-
-    <!-- Last error -->
-    <div>
-        <h4 class="text-sm font-medium text-gray-600 mb-2">Last Error</h4>
-        {% if metrics.last_error %}
-        <div class="bg-red-50 border border-red-200 rounded-lg p-3 text-xs">
-            <div class="font-medium text-red-800">Stage: {{ metrics.last_error.stage }}</div>
-            <div class="text-red-600 mt-1">{{ metrics.last_error.msg }}</div>
-            <div class="text-red-400 mt-1">{{ metrics.last_error.at }}</div>
-        </div>
-        {% else %}
-        <div class="text-sm text-gray-400">No errors 🎉</div>
-        {% endif %}
-    </div>
+<!-- HTMX-polled dashboard metric cards (replaces grid-4 innerHTML) -->
+<div class="metric-card">
+  <div class="label">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+    Pipeline runs (24h)
+  </div>
+  <div class="value">{{ metrics.total_jobs }}</div>
+</div>
+<div class="metric-card">
+  <div class="label">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+    Successful
+  </div>
+  <div class="value success">{{ metrics.by_status.done }}</div>
+</div>
+<div class="metric-card">
+  <div class="label">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--destructive)" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    Failed
+  </div>
+  <div class="value destructive">{{ metrics.by_status.failed }}</div>
+</div>
+<div class="metric-card">
+  <div class="label">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    Avg fetch
+  </div>
+  <div class="value">{{ metrics.stage_avg_ms.fetch }}ms</div>
 </div>

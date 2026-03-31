@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Metrics — SmartDigest{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:32px">
+  <h1>Pipeline Metrics</h1>
+  <p class="subtitle">Last 24 hours • Auto-refreshing <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--success);margin-left:8px;animation:pulse 2s ease-in-out infinite"></span></p>
+</div>
+
+<div id="metrics-full"
+     hx-get="/metrics/content"
+     hx-trigger="load, every 5s"
+     hx-swap="innerHTML">
+  <!-- Loading skeleton -->
+  <div class="grid-4" style="margin-bottom:32px;">
+    {% for _ in range(4) %}
+    <div class="metric-card">
+      <div style="height:16px;background:var(--secondary);border-radius:4px;width:60%;margin-bottom:8px;"></div>
+      <div style="height:28px;background:var(--secondary);border-radius:4px;width:40%;"></div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

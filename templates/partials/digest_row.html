@@ -1,19 +1,22 @@
-<tr class="hover:bg-gray-50 transition-colors">
-    <td class="px-4 py-2.5 text-gray-800 font-medium">{{ d.topic or "—" }}</td>
-    <td class="px-4 py-2.5 text-gray-500">{{ d.created_at.strftime('%b %d, %H:%M') if d.created_at else "—" }}</td>
-    <td class="px-4 py-2.5">
-        {% if d.status == "delivered" %}
-        <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">delivered</span>
-        {% elif d.status == "processing" %}
-        <span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">processing</span>
-        {% elif d.status == "failed" %}
-        <span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">failed</span>
-        {% else %}
-        <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{{ d.status }}</span>
-        {% endif %}
-    </td>
-    <td class="px-4 py-2.5 text-gray-500">{{ d.item_count or 0 }}</td>
-    <td class="px-4 py-2.5">
-        <a href="/digests/{{ d.id }}" class="text-blue-600 hover:text-blue-700 text-xs font-medium">View →</a>
-    </td>
-</tr>
+<a href="/digests/{{ d.id }}" class="digest-row">
+  <div class="left">
+    {% if d.status == "delivered" %}
+      <span class="badge badge-delivered">Delivered</span>
+    {% elif d.status == "processing" %}
+      <span class="badge badge-processing"><span class="dot"></span>Processing</span>
+    {% elif d.status == "failed" %}
+      <span class="badge badge-failed">Failed</span>
+    {% elif d.status == "queued" %}
+      <span class="badge badge-queued">Queued</span>
+    {% else %}
+      <span class="badge badge-queued">{{ d.status }}</span>
+    {% endif %}
+    <div>
+      <span class="topic">{{ d.topic or "—" }}</span>
+      <div class="count">{{ d.item_count or 0 }} article{{ 's' if (d.item_count or 0) != 1 else '' }}</div>
+    </div>
+  </div>
+  <span class="time digest-time" data-utc="{{ d.created_at.isoformat() if d.created_at else '' }}">
+    {{ d.created_at.strftime('%b %d, %H:%M') if d.created_at else "—" }}
+  </span>
+</a>

@@ -1,96 +1,94 @@
 {% extends "base.html" %}
 
-{% block title %}Digest — SmartDigest{% endblock %}
+{% block title %}{{ digest.topic or "Digest" }} — SmartDigest{% endblock %}
 
 {% block content %}
-<div class="max-w-3xl mx-auto">
-    <a href="/" class="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-sm mb-4 transition-colors">
-        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-        Back to Dashboard
-    </a>
+<a href="/digests" class="back-link">← Back to digests</a>
 
-    <div class="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-        <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 mb-4">
-            <div class="min-w-0">
-                <h2 class="text-lg sm:text-xl font-bold text-gray-800 break-words">{{ digest.topic or "Digest #" ~ digest.id }}</h2>
-                <p class="text-sm text-gray-500 mt-1">Created {{ digest.created_at.strftime('%b %d, %Y at %H:%M UTC') if digest.created_at else "—" }}</p>
-            </div>
-            <div class="flex-shrink-0">
-                {% if digest.status == "delivered" %}
-                <span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm">delivered</span>
-                {% elif digest.status == "failed" %}
-                <span class="bg-red-100 text-red-700 px-3 py-1 rounded-full text-sm">failed</span>
-                {% else %}
-                <span class="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-sm">{{ digest.status }}</span>
-                {% endif %}
-            </div>
-        </div>
-
-        {% if digest.delivered_at %}
-        <p class="text-sm text-gray-500 mb-4">📧 Delivered at {{ digest.delivered_at.strftime('%b %d, %Y at %H:%M UTC') }}</p>
-        {% endif %}
-
-        <hr class="my-4">
-
-        {% if items %}
-        <div class="space-y-3 sm:space-y-4">
-            {% for item in items %}
-            <div class="border border-gray-100 rounded-lg p-3 sm:p-4 hover:border-gray-200 transition-colors">
-                <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2 mb-2">
-                    <a href="{{ item.item_url or '#' }}" target="_blank" rel="noopener noreferrer"
-                        class="font-medium text-blue-600 hover:text-blue-700 break-words">
-                        {{ item.title or "Untitled" }}
-                        <span class="inline-block ml-1 text-gray-400 text-xs">↗</span>
-                    </a>
-                    <div class="flex items-center gap-2 flex-shrink-0">
-                        {# Relevance score badge #}
-                        {% if item.llm_relevance_score is not none %}
-                            {% if item.llm_relevance_score >= 8 %}
-                            <span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-medium" title="LLM relevance: {{ item.llm_relevance_score }}/10">⭐ {{ item.llm_relevance_score }}</span>
-                            {% elif item.llm_relevance_score >= 6 %}
-                            <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium" title="LLM relevance: {{ item.llm_relevance_score }}/10">✓ {{ item.llm_relevance_score }}</span>
-                            {% else %}
-                            <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium" title="LLM relevance: {{ item.llm_relevance_score }}/10">{{ item.llm_relevance_score }}</span>
-                            {% endif %}
-                        {% endif %}
-                        {% if item.fetch_duration_ms %}
-                        <span class="text-xs text-gray-400 font-mono hidden sm:inline">{{ item.fetch_duration_ms }}ms</span>
-                        {% endif %}
-                    </div>
-                </div>
-
-                <div class="text-xs text-gray-400 mb-2">{{ item.source_url or "" | replace("https://", "") | truncate(40) }}</div>
-
-                {# Heuristic score bar #}
-                {% if item.heuristic_score is not none %}
-                <div class="mb-2">
-                    <div class="flex items-center gap-2">
-                        <span class="text-xs text-gray-400 whitespace-nowrap">Keyword match</span>
-                        <div class="flex-1 bg-gray-100 rounded-full h-1.5">
-                            {% set hw = (item.heuristic_score * 100) | int %}
-                            <div class="bg-indigo-400 h-1.5 rounded-full" style="width: {{ [hw, 100] | min }}%"></div>
-                        </div>
-                        <span class="text-xs text-gray-400 font-mono">{{ "%.0f" | format(item.heuristic_score * 100) }}%</span>
-                    </div>
-                </div>
-                {% endif %}
-
-                <p class="text-sm text-gray-700">{{ item.summary or "[Summary coming soon]" }}</p>
-
-                {# LLM relevance reason #}
-                {% if item.llm_relevance_reason %}
-                <p class="text-xs text-gray-400 mt-2 italic">💡 {{ item.llm_relevance_reason }}</p>
-                {% endif %}
-            </div>
-            {% endfor %}
-        </div>
-        {% else %}
-        <div class="text-center py-8">
-            <div class="text-3xl mb-2">📭</div>
-            <p class="text-gray-500">No items in this digest.</p>
-            <p class="text-xs text-gray-400 mt-1">Items will appear here once the pipeline finishes processing.</p>
-        </div>
-        {% endif %}
-    </div>
+<div style="margin-bottom:24px">
+  <h1>{{ digest.topic or "Digest #" ~ digest.id }}</h1>
+  <div style="margin-top:4px;display:flex;align-items:center;gap:12px;font-size:14px;color:var(--muted-fg);flex-wrap:wrap;">
+    {% if digest.status == "delivered" %}
+      <span class="badge badge-delivered">Delivered</span>
+    {% elif digest.status == "processing" %}
+      <span class="badge badge-processing"><span class="dot"></span>Processing</span>
+    {% elif digest.status == "failed" %}
+      <span class="badge badge-failed">Failed</span>
+    {% else %}
+      <span class="badge badge-queued">{{ digest.status }}</span>
+    {% endif %}
+    <span>{{ items|length }} article{{ 's' if items|length != 1 else '' }}</span>
+    {% if digest.created_at %}
+    <span>•</span>
+    <span class="digest-time" data-utc="{{ digest.created_at.isoformat() }}">{{ digest.created_at.strftime('%b %d, %Y at %H:%M UTC') }}</span>
+    {% endif %}
+    {% if digest.delivered_at %}
+    <span>•</span>
+    <span>Delivered <span class="digest-time" data-utc="{{ digest.delivered_at.isoformat() }}">{{ digest.delivered_at.strftime('%b %d, %H:%M UTC') }}</span></span>
+    {% endif %}
+  </div>
 </div>
+
+{% if items %}
+  {% for item in items %}
+  <div class="article">
+    <div class="article-header">
+      <div>
+        <a href="{{ item.item_url or '#' }}" target="_blank" rel="noopener" class="article-title">{{ item.title or "Untitled" }}</a>
+        <div class="article-meta">
+          {% if item.source_url %}
+          <span>{{ item.source_url | replace('https://', '') | replace('http://', '') | truncate(30, True, '…') }}</span>
+          <span>•</span>
+          {% endif %}
+          {% if item.published_at %}
+          <span>{{ item.published_at.strftime('%b %d') }}</span>
+          <span>•</span>
+          {% endif %}
+          {% if item.fetch_duration_ms %}
+          <span class="mono">{{ item.fetch_duration_ms }}ms</span>
+          {% endif %}
+        </div>
+      </div>
+      {% if item.llm_relevance_score is not none %}
+      {% set score = item.llm_relevance_score %}
+      {% set pct = (score * 10) | int %}
+      {% set tier = 'high' if score >= 7 else ('mid' if score >= 4 else 'low') %}
+      <div class="score-bar">
+        <div class="score-track"><div class="score-fill {{ tier }}" style="width:{{ pct }}%"></div></div>
+        <span class="score-label">{{ score }}/10</span>
+      </div>
+      {% endif %}
+    </div>
+    {% if item.summary %}
+    <p class="article-summary">{{ item.summary }}</p>
+    {% endif %}
+    {% if item.llm_relevance_reason %}
+    <p class="article-reason">{{ item.llm_relevance_reason }}</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="card" style="text-align:center;padding:48px 16px;">
+    <div style="font-size:32px;margin-bottom:12px;">📝</div>
+    <p style="color:var(--muted-fg);">No articles in this digest yet.</p>
+  </div>
+{% endif %}
+
+<script>
+// Localize timestamps on digest detail page
+(function() {
+    try {
+        document.querySelectorAll(".digest-time").forEach(function(el) {
+            var utc = el.dataset.utc;
+            if (utc) {
+                var d = new Date(utc);
+                el.textContent = d.toLocaleDateString("en-US", {
+                    month: "short", day: "numeric", year: "numeric",
+                    hour: "numeric", minute: "2-digit", hour12: true
+                });
+            }
+        });
+    } catch(e) {}
+})();
+</script>
 {% endblock %}

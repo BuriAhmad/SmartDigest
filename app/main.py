@@ -105,6 +105,7 @@ def create_app() -> FastAPI:
             return RedirectResponse(url="/", status_code=303)
         return templates.TemplateResponse("login.html", {
             "request": request,
+            "active_page": "login",
         })
 
     @application.get("/", response_class=HTMLResponse)
@@ -184,6 +185,7 @@ def create_app() -> FastAPI:
             "briefings": briefings,
             "digests": digests,
             "sources": sources,
+            "active_page": "dashboard",
         })
 
     @application.get("/dashboard/metrics", response_class=HTMLResponse)
@@ -210,6 +212,60 @@ def create_app() -> FastAPI:
             "metrics": metrics,
         })
 
+    @application.get("/digests", response_class=HTMLResponse)
+    async def digests_list_page(request: Request, db: AsyncSession = Depends(get_db)):
+        """Digests list page — shows all user digests."""
+        from app.models.digest import Digest
+        from app.models.digest_item import DigestItem
+        from app.models.briefing import Briefing
+
+        user_id = request.state.user_id
+        user_email = request.state.user_email
+
+        digests_result = await db.execute(
+            select(
+                Digest.id,
+                Digest.briefing_id,
+                Digest.status,
+                Digest.created_at,
+                Digest.delivered_at,
+                Briefing.topic,
+                sqlfunc.count(DigestItem.id).label("item_count"),
+            )
+            .join(Briefing, Digest.briefing_id == Briefing.id)
+            .outerjoin(DigestItem, DigestItem.digest_id == Digest.id)
+            .where(Briefing.user_id == user_id)
+            .group_by(
+                Digest.id,
+                Digest.briefing_id,
+                Digest.status,
+                Digest.created_at,
+                Digest.delivered_at,
+                Briefing.topic,
+            )
+            .order_by(Digest.created_at.desc())
+        )
+        digests_raw = digests_result.all()
+
+        digests = []
+        for row in digests_raw:
+            digests.append({
+                "id": row[0],
+                "briefing_id": row[1],
+                "status": row[2],
+                "created_at": row[3],
+                "delivered_at": row[4],
+                "topic": row[5],
+                "item_count": row[6],
+            })
+
+        return templates.TemplateResponse("digests.html", {
+            "request": request,
+            "user_email": user_email,
+            "digests": digests,
+            "active_page": "digests",
+        })
+
     @application.get("/digests/{digest_id}", response_class=HTMLResponse)
     async def digest_detail_page(
         digest_id: int,
@@ -234,20 +290,17 @@ def create_app() -> FastAPI:
         )
         digest = result.scalar_one_or_none()
         if digest is None:
-            return templates.TemplateResponse("base.html", {
-                "request": request,
-                "user_email": getattr(request.state, "user_email", ""),
-            }, status_code=404, block_name=None) if False else HTMLResponse(
+            return HTMLResponse(
                 """<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Not Found — SmartDigest</title>
-                <script src="https://cdn.tailwindcss.com"></script></head>
-                <body class="bg-gray-50 min-h-screen flex items-center justify-center p-4">
-                <div class="text-center"><div class="text-5xl mb-4">🔍</div>
-                <h1 class="text-2xl font-bold text-gray-800 mb-2">Digest not found</h1>
-                <p class="text-gray-500 mb-6 text-sm">This digest doesn't exist or you don't have access to it.</p>
-                <a href="/" class="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium text-sm">
-                ← Back to Dashboard</a></div></body></html>""",
+                <style>body{font-family:'Inter',system-ui,sans-serif;background:hsl(220 20% 6%);color:hsl(210 20% 92%);min-height:100vh;display:flex;align-items:center;justify-content:center;margin:0;}
+                .c{text-align:center;} .e{font-size:48px;margin-bottom:16px;} h1{font-size:20px;font-weight:700;margin-bottom:8px;}
+                p{color:hsl(215 12% 50%);font-size:14px;margin-bottom:24px;} a{color:hsl(172 66% 50%);font-size:14px;font-weight:500;text-decoration:none;}a:hover{text-decoration:underline;}</style></head>
+                <body><div class="c"><div class="e">🔍</div>
+                <h1>Digest not found</h1>
+                <p>This digest doesn't exist or you don't have access to it.</p>
+                <a href="/">← Back to Dashboard</a></div></body></html>""",
                 status_code=404,
             )
 
@@ -269,6 +322,48 @@ def create_app() -> FastAPI:
             "user_email": getattr(request.state, "user_email", ""),
             "digest": digest,
             "items": items,
+            "active_page": "digests",
+        })
+
+    @application.get("/metrics", response_class=HTMLResponse)
+    async def metrics_page(request: Request):
+        """Full pipeline metrics page."""
+        return templates.TemplateResponse("metrics.html", {
+            "request": request,
+            "user_email": request.state.user_email,
+            "active_page": "metrics",
+        })
+
+    @application.get("/metrics/content", response_class=HTMLResponse)
+    async def metrics_content(request: Request):
+        """HTMX-polled full metrics content partial."""
+        from app.services.metrics import get_pipeline_metrics as get_pm
+        from app.services.metrics import get_usage_metrics as get_um
+        from app.database import async_session
+
+        metrics = {
+            "total_jobs": 0,
+            "by_status": {"done": 0, "failed": 0},
+            "stage_avg_ms": {"fetch": 0, "summarise": 0, "deliver": 0},
+            "last_error": None,
+        }
+        usage = {
+            "user_email": getattr(request.state, "user_email", "—"),
+            "briefing_count": 0,
+            "digest_count": 0,
+        }
+
+        try:
+            async with async_session() as session:
+                metrics = await get_pm(session, period_hours=24)
+                usage = await get_um(session, user_id=request.state.user_id)
+        except Exception:
+            pass
+
+        return templates.TemplateResponse("partials/metrics_full.html", {
+            "request": request,
+            "metrics": metrics,
+            "usage": usage,
         })
 
     return application

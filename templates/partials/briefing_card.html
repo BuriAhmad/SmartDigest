@@ -1,65 +1,23 @@
-<div class="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-sm transition-shadow" id="briefing-card-{{ briefing.id }}">
-    <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
-        <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2 mb-1 flex-wrap">
-                <h3 class="font-semibold text-gray-800 truncate">{{ briefing.topic }}</h3>
-                {% if briefing.active %}
-                <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full whitespace-nowrap">Active</span>
-                {% else %}
-                <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full whitespace-nowrap">Paused</span>
-                {% endif %}
-            </div>
-
-            <!-- Intent preview -->
-            {% if briefing.intent_description %}
-            <p class="text-xs text-gray-500 mb-2 line-clamp-2">{{ briefing.intent_description | truncate(120) }}</p>
-            {% endif %}
-
-            <!-- Keyword chips -->
-            {% if briefing.keywords %}
-            <div class="flex flex-wrap gap-1 mb-2">
-                {% for kw in briefing.keywords[:6] %}
-                <span class="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full">{{ kw }}</span>
-                {% endfor %}
-                {% if briefing.keywords | length > 6 %}
-                <span class="text-xs text-gray-400">+{{ briefing.keywords | length - 6 }} more</span>
-                {% endif %}
-            </div>
-            {% endif %}
-
-            <!-- Exclusion keywords -->
-            {% if briefing.exclusion_keywords %}
-            <div class="flex flex-wrap gap-1 mb-2">
-                {% for ek in briefing.exclusion_keywords[:3] %}
-                <span class="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full">✗ {{ ek }}</span>
-                {% endfor %}
-                {% if briefing.exclusion_keywords | length > 3 %}
-                <span class="text-xs text-gray-400">+{{ briefing.exclusion_keywords | length - 3 }} excluded</span>
-                {% endif %}
-            </div>
-            {% endif %}
-
-            <!-- Source chips -->
-            <div class="flex flex-wrap gap-1 mb-2">
-                {% for url in briefing.sources %}
-                <span class="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{{ url | replace("https://", "") | replace("http://", "") | truncate(30) }}</span>
-                {% endfor %}
-            </div>
-
-            <div class="text-xs text-gray-500">
-                📧 {{ briefing.email }} · ⏰ <span class="cron-schedule" data-cron="{{ briefing.schedule }}">{{ briefing.schedule }}</span>
-            </div>
-        </div>
-        <div class="flex items-center gap-2 flex-shrink-0 self-start sm:ml-4">
-            <button onclick="triggerPipeline({{ briefing.id }})"
-                id="trigger-btn-{{ briefing.id }}"
-                class="bg-green-50 text-green-700 px-3 py-2 sm:py-1.5 rounded-lg text-xs font-medium hover:bg-green-100 active:bg-green-200 transition-colors flex-1 sm:flex-none text-center">
-                ▶ Trigger Now
-            </button>
-            <button onclick="deleteBriefing({{ briefing.id }})" aria-label="Delete briefing"
-                class="bg-red-50 text-red-700 px-3 py-2 sm:py-1.5 rounded-lg text-xs font-medium hover:bg-red-100 active:bg-red-200 transition-colors">
-                🗑
-            </button>
-        </div>
-    </div>
+<div class="card" id="briefing-card-{{ briefing.id }}">
+  <div class="card-header">
+    <h3>{{ briefing.topic }}</h3>
+    <span class="schedule cron-schedule" data-cron="{{ briefing.schedule }}">{{ briefing.schedule }}</span>
+  </div>
+  {% if briefing.intent_description %}
+  <div class="desc">{{ briefing.intent_description }}</div>
+  {% endif %}
+  {% if briefing.keywords %}
+  <div class="tags">
+    {% for kw in briefing.keywords[:4] %}
+    <span class="tag">{{ kw }}</span>
+    {% endfor %}
+    {% if briefing.keywords|length > 4 %}
+    <span class="tag">+{{ briefing.keywords|length - 4 }}</span>
+    {% endif %}
+  </div>
+  {% endif %}
+  <div class="actions">
+    <button id="trigger-btn-{{ briefing.id }}" onclick="triggerPipeline('{{ briefing.id }}')" class="btn btn-outline btn-sm">▶ Run now</button>
+    <button class="btn btn-ghost btn-sm btn-destructive" onclick="deleteBriefing('{{ briefing.id }}')" >Delete</button>
+  </div>
 </div>

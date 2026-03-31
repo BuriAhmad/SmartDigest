@@ -1,9 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{% block title %}SmartDigest{% endblock %}</title>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — SmartDigest</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
@@ -41,9 +40,7 @@ a { color: inherit; text-decoration: none; }
 .sidebar-nav a { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: var(--radius); font-size: 14px; font-weight: 500; color: var(--muted-fg); transition: all 0.15s; }
 .sidebar-nav a:hover, .sidebar-nav a.active { background: var(--secondary); color: var(--fg); }
 .sidebar-footer { border-top: 1px solid var(--border); padding: 12px; }
-.sidebar-footer .email { padding: 0 12px; font-size: 12px; color: var(--muted-fg); margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar-footer .logout-btn { display: block; padding: 6px 12px; font-size: 12px; color: var(--muted-fg); border-radius: var(--radius); cursor: pointer; background: none; font-family: inherit; width: 100%; text-align: left; transition: all 0.15s; }
-.sidebar-footer .logout-btn:hover { background: var(--secondary); color: var(--destructive); }
+.sidebar-footer .email { padding: 0 12px; font-size: 12px; color: var(--muted-fg); margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; }
 
 .main { flex: 1; overflow-y: auto; }
 .content { max-width: 1152px; margin: 0 auto; padding: 24px; }
@@ -53,7 +50,7 @@ h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
 .section-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted-fg); margin-bottom: 12px; }
 
-.btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: var(--radius); font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; border: none; font-family: inherit; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: var(--radius); font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; border: none; }
 .btn-primary { background: var(--primary); color: var(--primary-fg); }
 .btn-primary:hover { opacity: 0.9; }
 .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--fg); }
@@ -61,8 +58,7 @@ h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 
 .btn-ghost { background: transparent; color: var(--muted-fg); }
 .btn-ghost:hover { background: var(--secondary); color: var(--fg); }
 .btn-sm { padding: 4px 12px; font-size: 12px; height: 28px; }
-.btn-destructive-text { color: var(--destructive); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-destructive { color: var(--destructive); }
 
 .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 32px; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -77,12 +73,11 @@ h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 
 .card { border: 1px solid var(--border); background: var(--card); border-radius: var(--radius); padding: 16px; transition: border-color 0.15s; }
 .card:hover { border-color: hsl(172 66% 50% / 0.3); }
 .card h3 { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
-.card .desc { font-size: 12px; color: var(--muted-fg); margin-bottom: 12px; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card .desc { font-size: 12px; color: var(--muted-fg); margin-bottom: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .card .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
 .card .schedule { font-size: 12px; color: var(--muted-fg); font-family: 'JetBrains Mono', monospace; }
 
 .tag { display: inline-block; background: var(--secondary); color: var(--secondary-fg); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 500; margin-right: 4px; margin-bottom: 4px; }
-.tag-exclude { background: hsl(0 72% 55% / 0.12); color: hsl(0 72% 65%); }
 .tags { margin-bottom: 12px; }
 
 .actions { display: flex; gap: 8px; }
@@ -106,7 +101,7 @@ h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 
 .article-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .article-title { font-size: 16px; font-weight: 600; color: var(--fg); }
 .article-title:hover { color: var(--primary); }
-.article-meta { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted-fg); }
+.article-meta { margin-top: 4px; display: flex; gap: 12px; font-size: 12px; color: var(--muted-fg); }
 .article-summary { margin-top: 12px; font-size: 14px; line-height: 1.6; color: var(--secondary-fg); }
 .article-reason { margin-top: 8px; font-size: 12px; color: var(--muted-fg); font-style: italic; }
 
@@ -123,15 +118,14 @@ h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 
 .status-bar .seg-failed { background: var(--destructive); }
 .status-bar .seg-queued { background: var(--info); }
 .status-bar .seg-in_progress { background: var(--warning); }
-.status-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; font-size: 14px; }
-.status-legend div { display: flex; align-items: center; gap: 6px; }
-.status-legend .legend-label { color: var(--muted-fg); text-transform: capitalize; }
-.status-legend .legend-value { font-family: 'JetBrains Mono', monospace; font-weight: 500; }
+.status-legend { display: flex; gap: 16px; margin-top: 12px; font-size: 14px; }
+.status-legend span:first-child { color: var(--muted-fg); text-transform: capitalize; }
+.status-legend span:last-child { font-family: 'JetBrains Mono', monospace; font-weight: 500; }
 
 .error-box { border: 1px solid hsl(0 72% 55% / 0.3); background: hsl(0 72% 55% / 0.05); border-radius: var(--radius); padding: 16px; display: flex; gap: 12px; }
 .error-box .icon { color: var(--destructive); flex-shrink: 0; margin-top: 2px; }
 .error-box .stage { font-size: 14px; font-weight: 500; text-transform: capitalize; }
-.error-box .msg { font-size: 14px; color: var(--secondary-fg); font-family: 'JetBrains Mono', monospace; margin-top: 4px; word-break: break-word; }
+.error-box .msg { font-size: 14px; color: var(--secondary-fg); font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
 .error-box .ts { font-size: 12px; color: var(--muted-fg); margin-top: 4px; }
 
 .latency-card { border: 1px solid var(--border); background: var(--card); border-radius: var(--radius); padding: 16px; }
@@ -150,39 +144,9 @@ h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 
 
 .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 
-.modal-backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
-.modal-body { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); max-width: 520px; width: 100%; margin: 0 16px; padding: 24px; max-height: 90vh; overflow-y: auto; }
-.modal-body h3 { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
-
-.form-group { margin-bottom: 16px; }
-.form-label { display: block; font-size: 13px; font-weight: 500; color: var(--secondary-fg); margin-bottom: 6px; }
-.form-hint { font-size: 11px; color: var(--muted-fg); margin-top: 4px; }
-.form-input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; font-size: 14px; color: var(--fg); font-family: inherit; transition: border-color 0.15s; }
-.form-input:focus { outline: none; border-color: var(--primary); }
-.form-input::placeholder { color: var(--muted-fg); }
-textarea.form-input { resize: vertical; min-height: 80px; }
-select.form-input { appearance: auto; }
-.form-checkbox-list { max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; }
-.form-checkbox-label { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 4px 6px; border-radius: 4px; cursor: pointer; transition: background 0.1s; }
-.form-checkbox-label:hover { background: var(--secondary); }
-.form-checkbox-label input { accent-color: var(--primary); }
-.form-checkbox-cat { font-size: 10px; color: var(--muted-fg); background: var(--secondary); padding: 1px 6px; border-radius: 4px; }
-.form-error { color: var(--destructive); font-size: 13px; margin-top: 12px; display: none; }
-.form-error.visible { display: block; }
-
-.toast { position: fixed; top: 20px; right: 20px; z-index: 100; padding: 10px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 8px; animation: slideIn 0.3s ease-out, fadeOut 0.3s ease 3s forwards; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
-.toast-success { background: hsl(152 60% 45% / 0.2); color: var(--success); border: 1px solid hsl(152 60% 45% / 0.3); }
-.toast-error { background: hsl(0 72% 55% / 0.2); color: var(--destructive); border: 1px solid hsl(0 72% 55% / 0.3); }
-.toast-warning { background: hsl(38 92% 50% / 0.2); color: var(--warning); border: 1px solid hsl(38 92% 50% / 0.3); }
-
 @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
 @keyframes slideIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
-@keyframes fadeOut { from { opacity:1; } to { opacity:0; pointer-events:none; } }
 .animate { animation: slideIn 0.3s ease-out; }
-
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
 @media (max-width: 768px) {
   .sidebar { display: none; }
@@ -190,12 +154,13 @@ select.form-input { appearance: auto; }
   .grid-cards { grid-template-columns: 1fr; }
   .grid-3 { grid-template-columns: 1fr; }
 }
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 </style>
-<script src="https://unpkg.com/htmx.org@1.9.12"></script>
-{% block head %}{% endblock %}
 </head>
 <body>
-{% block body %}
 <div class="app">
 
 <aside class="sidebar">
@@ -204,70 +169,68 @@ select.form-input { appearance: auto; }
     <span>SmartDigest</span>
   </div>
   <nav class="sidebar-nav">
-    <a href="/" class="{% if active_page == 'dashboard' %}active{% endif %}">
+    <a href="dashboard.html" class="active">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
       Dashboard
     </a>
-    <a href="/digests" class="{% if active_page == 'digests' %}active{% endif %}">
+    <a href="digests.html" class="">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
       Digests
     </a>
-    <a href="/metrics" class="{% if active_page == 'metrics' %}active{% endif %}">
+    <a href="metrics.html" class="">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
       Metrics
     </a>
   </nav>
   <div class="sidebar-footer">
-    <div class="email" title="{{ user_email }}">{{ user_email }}</div>
-    <form action="/auth/logout" method="POST">
-      <button type="submit" class="logout-btn">Log out</button>
-    </form>
+    <div class="email">user@smartdigest.io</div>
   </div>
 </aside>
 
-<main class="main">
-  <div class="content animate">
-    {% block content %}{% endblock %}
-  </div>
-</main>
-
+<main class="main"><div class="content animate">
+<div class="header">
+  <div><h1>Dashboard</h1><p class="subtitle">Manage your content briefings</p></div>
+  <button class="btn btn-primary">+ New Briefing</button>
 </div>
 
-<div id="toast-container" aria-live="polite"></div>
-{% endblock %}
+<div class="grid-4">
+  <div class="metric-card"><div class="label"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg> Pipeline runs (24h)</div><div class="value">42</div></div>
+  <div class="metric-card"><div class="label"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Successful</div><div class="value success">36</div></div>
+  <div class="metric-card"><div class="label"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--destructive)" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Failed</div><div class="value destructive">3</div></div>
+  <div class="metric-card"><div class="label"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Avg fetch</div><div class="value">1850ms</div></div>
+</div>
 
-<script>
-function showToast(message, level) {
-    var cls = { success: "toast-success", error: "toast-error", warning: "toast-warning" };
-    var icons = { success: "✓", error: "✕", warning: "⚠" };
-    var container = document.getElementById("toast-container");
-    var t = document.createElement("div");
-    t.className = "toast " + (cls[level] || cls.success);
-    t.setAttribute("role", "alert");
-    t.innerHTML = "<strong>" + (icons[level] || "✓") + "</strong> " + message;
-    container.appendChild(t);
-    setTimeout(function() { t.remove(); }, 3500);
-}
+<div class="section-label">Your Briefings</div>
+<div class="grid-cards" style="margin-bottom:32px">
+  <div class="card">
+    <div class="card-header"><h3>AI Research</h3><span class="schedule">1:00 PM</span></div>
+    <div class="desc">Stay current on foundation model papers, RLHF, and alignment research. Focus on practical applications and benchmark results.</div>
+    <div class="tags"><span class="tag">transformers</span><span class="tag">RLHF</span><span class="tag">LLM</span><span class="tag">alignment</span><span class="tag">+1</span></div>
+    <div class="actions"><button class="btn btn-outline btn-sm">▶ Run now</button><button class="btn btn-ghost btn-sm">Edit</button><button class="btn btn-ghost btn-sm btn-destructive">Delete</button></div>
+  </div>
+  <div class="card">
+    <div class="card-header"><h3>Startup Funding</h3><span class="schedule">12:00 PM</span></div>
+    <div class="desc">Track Series A/B funding rounds in developer tools, infrastructure, and AI startups. Interested in valuations and investors.</div>
+    <div class="tags"><span class="tag">series-a</span><span class="tag">seed-round</span><span class="tag">dev-tools</span><span class="tag">+1</span></div>
+    <div class="actions"><button class="btn btn-outline btn-sm">▶ Run now</button><button class="btn btn-ghost btn-sm">Edit</button><button class="btn btn-ghost btn-sm btn-destructive">Delete</button></div>
+  </div>
+  <div class="card">
+    <div class="card-header"><h3>Systems Engineering</h3><span class="schedule">5:00 PM</span></div>
+    <div class="desc">Deep dives into distributed systems, database internals, and performance optimization.</div>
+    <div class="tags"><span class="tag">distributed-systems</span><span class="tag">databases</span><span class="tag">performance</span><span class="tag">Rust</span></div>
+    <div class="actions"><button class="btn btn-outline btn-sm">▶ Run now</button><button class="btn btn-ghost btn-sm">Edit</button><button class="btn btn-ghost btn-sm btn-destructive">Delete</button></div>
+  </div>
+</div>
 
-document.addEventListener("keydown", function(e) {
-    if (e.key === "Escape") {
-        document.querySelectorAll(".modal-backdrop:not(.hidden)").forEach(function(m) {
-            m.classList.add("hidden");
-        });
-    }
-});
-
-{% if user_email %}
-window.addEventListener("pageshow", function(e) {
-    if (e.persisted) window.location.reload();
-});
-{% endif %}
-
-document.body.addEventListener("htmx:responseError", function(evt) {
-    var detail = "Something went wrong";
-    try { detail = JSON.parse(evt.detail.xhr.responseText).detail || detail; } catch(e) {}
-    showToast(detail, "error");
-});
-</script>
+<div class="section-header">
+  <div class="section-label" style="margin-bottom:0">Recent Digests</div>
+  <a href="digests.html" class="view-all">View all</a>
+</div>
+<a href="digest-detail.html" class="digest-row"><div class="left"><span class="badge badge-delivered">Delivered</span><span class="topic">AI Research</span><span class="count">7 articles</span></div><span class="time">just now</span></a>
+<a href="digest-detail.html" class="digest-row"><div class="left"><span class="badge badge-delivered">Delivered</span><span class="topic">Startup Funding</span><span class="count">5 articles</span></div><span class="time">1 hour ago</span></a>
+<a href="digest-detail.html" class="digest-row"><div class="left"><span class="badge badge-processing"><span class="dot"></span>Processing</span><span class="topic">AI Research</span><span class="count">4 articles</span></div><span class="time">1 day ago</span></a>
+<a href="digest-detail.html" class="digest-row"><div class="left"><span class="badge badge-failed">Failed</span><span class="topic">Systems Engineering</span><span class="count">0 articles</span></div><span class="time">2 days ago</span></a>
+</div></main>
+</div>
 </body>
 </html>
