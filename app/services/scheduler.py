@@ -8,12 +8,13 @@ import structlog
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from app.database import async_session
 from app.models.briefing import Briefing
 from app.models.digest import Digest
 from app.models.digest_item import DigestItem
 from app.models.pipeline_event import PipelineEvent
+from app.models.user import User
 from app.services.fetcher import fetch_articles
 from app.services.summariser import summarise_articles
 from app.services.mailer import send_digest_email
@@ -21,6 +22,8 @@ from app.services.intent import build_intent_context, extract_all_keywords
 from app.services.filters import FilterPipeline
 
 logger = structlog.get_logger()
+
+_PIPELINE_LOCK_NAMESPACE = 0x5D16E57
 
 
 async def run_pipeline(ctx: dict, briefing_id: int) -> dict:
@@ -42,6 +45,26 @@ async def run_pipeline(ctx: dict, briefing_id: int) -> dict:
         if briefing is None or not briefing.active:
             log.warning("pipeline.briefing_not_found")
             return {"status": "failed", "error": "Briefing not found or inactive"}
+
+        owner_email = await _get_owner_email(session, briefing.user_id)
+        if not _emails_match(briefing.email, owner_email):
+            log.warning(
+                "pipeline.delivery_email_mismatch",
+                delivery_email=briefing.email,
+                owner_email=owner_email,
+            )
+            return {
+                "status": "failed",
+                "error": "Delivery email does not match briefing owner",
+            }
+
+        lock_acquired = await _try_lock_briefing_pipeline(session, briefing.id)
+        if not lock_acquired:
+            log.warning("pipeline.duplicate_run_skipped")
+            return {
+                "status": "skipped",
+                "error": "A pipeline run is already active for this briefing",
+            }
 
         # Build intent context for filters and summariser
         intent_context = build_intent_context(
@@ -261,8 +284,8 @@ async def run_pipeline(ctx: dict, briefing_id: int) -> dict:
 async def enqueue_scheduled_digests(ctx: dict) -> dict:
     """ARQ cron job — enqueues pipelines for all active briefings.
 
-    TODO: Implement proper cron matching against briefing.schedule.
-    Currently triggers ALL active briefings (schedule field is informational).
+    Only enqueues briefings whose delivery email belongs to their owning user
+    and whose daily cron schedule matches the current UTC minute.
     """
     from arq.connections import create_pool, RedisSettings
     from app.config import get_settings
@@ -274,7 +297,12 @@ async def enqueue_scheduled_digests(ctx: dict) -> dict:
 
     async with async_session() as session:
         result = await session.execute(
-            select(Briefing).where(Briefing.active.is_(True))
+            select(Briefing)
+            .join(User, User.id == Briefing.user_id)
+            .where(
+                Briefing.active.is_(True),
+                func.lower(Briefing.email) == func.lower(User.email),
+            )
         )
         briefings = result.scalars().all()
 
@@ -282,9 +310,19 @@ async def enqueue_scheduled_digests(ctx: dict) -> dict:
         log.info("cron.no_active_briefings")
         return {"enqueued": 0}
 
+    now = datetime.now(timezone.utc)
+    due_briefings = [
+        briefing for briefing in briefings
+        if _schedule_is_due(briefing.schedule, now)
+    ]
+
+    if not due_briefings:
+        log.info("cron.no_due_briefings", checked=len(briefings))
+        return {"enqueued": 0}
+
     redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
     enqueued = 0
-    for briefing in briefings:
+    for briefing in due_briefings:
         try:
             await redis.enqueue_job("run_pipeline", briefing.id)
             enqueued += 1
@@ -294,6 +332,42 @@ async def enqueue_scheduled_digests(ctx: dict) -> dict:
 
     log.info("cron.enqueued", count=enqueued)
     return {"enqueued": enqueued}
+
+
+async def _get_owner_email(session, user_id: int) -> str:
+    result = await session.execute(
+        select(User.email).where(User.id == user_id)
+    )
+    return result.scalar_one_or_none() or ""
+
+
+def _emails_match(left: Optional[str], right: Optional[str]) -> bool:
+    return (left or "").strip().lower() == (right or "").strip().lower()
+
+
+async def _try_lock_briefing_pipeline(session, briefing_id: int) -> bool:
+    result = await session.execute(
+        select(func.pg_try_advisory_xact_lock(_PIPELINE_LOCK_NAMESPACE, briefing_id))
+    )
+    return bool(result.scalar())
+
+
+def _schedule_is_due(schedule: Optional[str], now: datetime) -> bool:
+    """Return true when a simple daily cron is due at the current UTC minute."""
+    if not schedule:
+        return False
+
+    parts = schedule.strip().split()
+    if len(parts) != 5 or parts[2:] != ["*", "*", "*"]:
+        return False
+
+    try:
+        minute = int(parts[0])
+        hour = int(parts[1])
+    except ValueError:
+        return False
+
+    return now.hour == hour and now.minute == minute
 
 
 def _build_digest_email(

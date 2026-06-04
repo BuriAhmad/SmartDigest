@@ -133,11 +133,26 @@
       <input type="email" name="email" required class="form-input" placeholder="you@example.com">
     </div>
 
-    <!-- 24-hour time grid -->
+    <!-- Delivery Time -->
     <div class="form-group">
-      <label class="form-label">Delivery time <span style="color:var(--muted-fg);font-weight:400;">(daily · click an hour)</span></label>
-      <div class="time-grid" id="time-grid"></div>
-      <p class="time-grid-hint" id="time-grid-hint"></p>
+      <label class="form-label">Delivery time</label>
+      <div class="time-picker-wrap" id="time-picker-wrap">
+        <button type="button" class="time-picker-field" id="time-picker-button" onclick="toggleTimePicker()" aria-haspopup="listbox" aria-expanded="false">
+          <span class="time-picker-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          </span>
+          <span class="time-picker-text">
+            <span class="time-picker-label">Time:</span>
+            <span class="time-picker-value" id="time-picker-value">12:30 PM</span>
+          </span>
+          <span class="time-picker-chevron" aria-hidden="true">⌄</span>
+        </button>
+        <div class="time-picker-panel" id="time-picker-panel" role="dialog" aria-label="Choose delivery time">
+          <button type="button" class="time-picker-close" onclick="closeTimePicker()" aria-label="Close time picker">×</button>
+          <div class="time-options" id="time-options" role="listbox"></div>
+        </div>
+      </div>
+      <p class="time-picker-hint" id="time-picker-hint"></p>
       <input type="hidden" name="schedule" id="schedule-hidden" value="0 8 * * *">
     </div>
 
@@ -202,6 +217,16 @@ function removeTag(group, tag) {
     tagState[group] = tagState[group].filter(function(t) { return t !== tag; });
     renderTags(group);
 }
+function commitPendingTag(group) {
+    var input = document.getElementById(group + "-input");
+    if (!input) return;
+    var val = input.value.trim();
+    if (val && !tagState[group].includes(val)) {
+        tagState[group].push(val);
+        input.value = "";
+        renderTags(group);
+    }
+}
 function renderTags(group) {
     var wrap = document.getElementById(group + "-wrap");
     var input = document.getElementById(group + "-input");
@@ -242,7 +267,7 @@ function updateSelectedCount() {
     });
 }
 
-/* ── 24-hour time grid + cron localiser ── */
+/* ── Delivery time picker + cron localiser ── */
 (function() {
     var tz = "UTC", tzAbbr = "UTC";
     try {
@@ -251,16 +276,50 @@ function updateSelectedCount() {
             .formatToParts(new Date()).find(function(p) { return p.type === "timeZoneName"; }).value;
     } catch(e) {}
 
-    function utcHourToLocal(h) {
+    function utcToLocalParts(hour, minute) {
         var now = new Date();
-        var d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), h, 0, 0));
-        return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: tz, hour12: true });
+        var d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0));
+        var parts = new Intl.DateTimeFormat("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+            timeZone: tz,
+            hour12: true,
+        }).formatToParts(d);
+        return {
+            hour: parts.find(function(p) { return p.type === "hour"; }).value,
+            minute: parts.find(function(p) { return p.type === "minute"; }).value,
+            period: parts.find(function(p) { return p.type === "dayPeriod"; }).value,
+        };
+    }
+    function formatLocalTime(hour, minute) {
+        var p = utcToLocalParts(hour, minute);
+        return p.hour + ":" + p.minute + " " + p.period;
+    }
+    function formatLocalClock(hour, minute) {
+        var d = new Date();
+        d.setHours(hour, minute, 0, 0);
+        var parts = new Intl.DateTimeFormat("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+        }).formatToParts(d);
+        return {
+            hour: parts.find(function(p) { return p.type === "hour"; }).value,
+            minute: parts.find(function(p) { return p.type === "minute"; }).value,
+            period: parts.find(function(p) { return p.type === "dayPeriod"; }).value,
+        };
+    }
+    function localToUtcParts(hour, minute) {
+        var d = new Date();
+        d.setHours(hour, minute, 0, 0);
+        return { hour: d.getUTCHours(), minute: d.getUTCMinutes() };
     }
     function cronToLocal(cron) {
         var parts = cron.trim().split(/\s+/);
-        if (parts.length === 5 && parts[0] === "0" && parts[2] === "*" && parts[3] === "*" && parts[4] === "*") {
+        if (parts.length === 5 && parts[2] === "*" && parts[3] === "*" && parts[4] === "*") {
+            var m = parseInt(parts[0], 10);
             var h = parseInt(parts[1], 10);
-            if (!isNaN(h)) return "Daily " + utcHourToLocal(h) + " " + tzAbbr;
+            if (!isNaN(h) && !isNaN(m)) return "Daily " + formatLocalTime(h, m) + " " + tzAbbr;
         }
         return cron;
     }
@@ -268,32 +327,90 @@ function updateSelectedCount() {
         el.textContent = cronToLocal(el.dataset.cron || "");
     });
 
-    var selectedUtcHour = 8;
-    var grid = document.getElementById("time-grid");
-    var hint = document.getElementById("time-grid-hint");
+    var selectedLocalHour = 12;
+    var selectedLocalMinute = 30;
+    var button = document.getElementById("time-picker-button");
+    var value = document.getElementById("time-picker-value");
+    var panel = document.getElementById("time-picker-panel");
+    var options = document.getElementById("time-options");
+    var hint = document.getElementById("time-picker-hint");
     var hidden = document.getElementById("schedule-hidden");
 
-    function selectHour(utcH) {
-        selectedUtcHour = utcH;
-        hidden.value = "0 " + utcH + " * * *";
-        document.querySelectorAll(".time-cell").forEach(function(c) {
-            c.classList.toggle("active", parseInt(c.dataset.utcHour, 10) === utcH);
+    function positionTimePicker() {
+        panel.classList.remove("drop-up");
+        var rect = button.getBoundingClientRect();
+        var panelHeight = panel.getBoundingClientRect().height || 240;
+        var roomBelow = window.innerHeight - rect.bottom;
+        var roomAbove = rect.top;
+        if (roomBelow < panelHeight + 12 && roomAbove > roomBelow) {
+            panel.classList.add("drop-up");
+        }
+    }
+
+    window.openTimePicker = function() {
+        panel.classList.add("open");
+        button.classList.add("open");
+        button.setAttribute("aria-expanded", "true");
+        positionTimePicker();
+        var selected = options.querySelector(".time-option.selected");
+        if (selected) {
+            options.scrollTop = selected.offsetTop - (options.clientHeight / 2) + (selected.offsetHeight / 2);
+        }
+    };
+    window.closeTimePicker = function() {
+        panel.classList.remove("open");
+        panel.classList.remove("drop-up");
+        button.classList.remove("open");
+        button.setAttribute("aria-expanded", "false");
+    };
+    window.toggleTimePicker = function() {
+        if (panel.classList.contains("open")) closeTimePicker();
+        else openTimePicker();
+    };
+
+    function selectTime(localH, localM) {
+        selectedLocalHour = localH;
+        selectedLocalMinute = localM;
+        var utc = localToUtcParts(localH, localM);
+        hidden.value = utc.minute + " " + utc.hour + " * * *";
+        var local = formatLocalClock(localH, localM);
+        var label = local.hour + ":" + local.minute + " " + local.period;
+        value.textContent = label;
+        document.querySelectorAll(".time-option").forEach(function(option) {
+            option.classList.toggle(
+                "selected",
+                parseInt(option.dataset.localHour, 10) === localH && parseInt(option.dataset.localMinute, 10) === localM
+            );
         });
-        hint.textContent = "\u21b3 delivers daily at " + utcHourToLocal(utcH) + " " + tzAbbr + "  \u00b7  UTC " + String(utcH).padStart(2, "0") + ":00";
+        hint.textContent = "Delivers daily at " + label + " " + tzAbbr + " · UTC " + String(utc.hour).padStart(2, "0") + ":" + String(utc.minute).padStart(2, "0");
     }
 
     for (var h = 0; h < 24; h++) {
-        (function(utcH) {
-            var cell = document.createElement("button");
-            cell.type = "button";
-            cell.className = "time-cell" + (utcH === selectedUtcHour ? " active" : "");
-            cell.dataset.utcHour = utcH;
-            cell.textContent = utcHourToLocal(utcH).replace(":00", "").replace(" AM", "am").replace(" PM", "pm");
-            cell.onclick = function() { selectHour(utcH); };
-            grid.appendChild(cell);
-        })(h);
+        [0, 30].forEach(function(minute) {
+            (function(localH, localM) {
+                var local = formatLocalClock(localH, localM);
+                var row = document.createElement("button");
+                row.type = "button";
+                row.className = "time-option";
+                row.dataset.localHour = localH;
+                row.dataset.localMinute = localM;
+                row.textContent = local.hour + ":" + local.minute + " " + local.period;
+                row.onclick = function() { selectTime(localH, localM); closeTimePicker(); };
+                options.appendChild(row);
+            })(h, minute);
+        });
     }
-    selectHour(selectedUtcHour);
+    selectTime(selectedLocalHour, selectedLocalMinute);
+
+    document.addEventListener("click", function(e) {
+        if (!document.getElementById("time-picker-wrap").contains(e.target)) closeTimePicker();
+    });
+    document.addEventListener("keydown", function(e) {
+        if (e.key === "Escape") closeTimePicker();
+    });
+    window.addEventListener("resize", function() {
+        if (panel.classList.contains("open")) positionTimePicker();
+    });
 })();
 
 /* ── Trigger pipeline ── */
@@ -340,6 +457,9 @@ document.getElementById("create-form").addEventListener("submit", async function
     var form = e.target;
     var errDiv = document.getElementById("create-errors");
     errDiv.classList.remove("visible");
+    commitPendingTag("keywords");
+    commitPendingTag("exclusion");
+    commitPendingTag("examples");
 
     var topic = form.topic.value.trim();
     var intentDescription = form.intent_description.value.trim();
@@ -386,7 +506,7 @@ document.getElementById("create-form").addEventListener("submit", async function
             window.location.href = "/login";
         } else {
             var data = await resp.json();
-            errDiv.textContent = data.detail || JSON.stringify(data);
+            errDiv.textContent = formatApiError(data);
             errDiv.classList.add("visible");
         }
     } catch(ex) {
@@ -396,5 +516,21 @@ document.getElementById("create-form").addEventListener("submit", async function
         btn.disabled = false; btn.textContent = "Create Briefing";
     }
 });
+
+function formatApiError(data) {
+    if (!data) return "Something went wrong.";
+    if (typeof data.detail === "string") return data.detail;
+    if (Array.isArray(data.detail)) {
+        return data.detail.map(function(item) {
+            if (typeof item === "string") return item;
+            var field = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : "field";
+            return field + ": " + (item.msg || JSON.stringify(item));
+        }).join(" ");
+    }
+    if (data.detail && typeof data.detail === "object") {
+        return data.detail.msg || JSON.stringify(data.detail);
+    }
+    return JSON.stringify(data);
+}
 </script>
 {% endblock %}

@@ -1,19 +1,17 @@
-"""Authentication endpoints — register, login, logout.
-
-All endpoints set/clear the httpOnly session cookie.
-"""
+"""Authentication endpoints — Firebase token exchange and logout."""
 
 import structlog
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
+from firebase_admin import auth as firebase_admin_auth
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.config import get_settings
 from app.services.auth import (
-    authenticate_user,
     create_session_token,
-    register_user,
+    get_or_create_firebase_user,
+    verify_firebase_id_token,
 )
 
 logger = structlog.get_logger()
@@ -36,66 +34,53 @@ def _set_session_cookie(response, token: str) -> None:
     )
 
 
-@router.post("/register")
-async def register(request: Request, db: AsyncSession = Depends(get_db)):
-    """Register a new user account."""
-    form = await request.form()
-    email = str(form.get("email", "")).strip().lower()
-    password = str(form.get("password", ""))
-    name = str(form.get("name", "")).strip()
+@router.post("/firebase/session")
+async def create_firebase_session(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify a Firebase ID token and set the SmartDigest session cookie."""
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
 
-    # Validate
-    errors = []
-    if not email or "@" not in email:
-        errors.append("Valid email is required")
-    if len(password) < 8:
-        errors.append("Password must be at least 8 characters")
-    if not name:
-        errors.append("Name is required")
-
-    if errors:
-        return JSONResponse(
-            status_code=422,
-            content={"detail": "; ".join(errors)},
-        )
+    id_token = str(payload.get("idToken") or "").strip()
+    display_name = str(payload.get("name") or "").strip()
+    if not id_token:
+        raise HTTPException(status_code=422, detail="Firebase ID token is required")
 
     try:
-        user = await register_user(db, email, password, name)
+        claims = verify_firebase_id_token(id_token)
+        user = await get_or_create_firebase_user(db, claims, fallback_name=display_name)
+        await db.commit()
+    except firebase_admin_auth.InvalidIdTokenError as exc:
+        raise HTTPException(status_code=401, detail="Invalid Firebase token") from exc
+    except firebase_admin_auth.ExpiredIdTokenError as exc:
+        raise HTTPException(status_code=401, detail="Expired Firebase token") from exc
     except ValueError as exc:
-        return JSONResponse(
-            status_code=409,
-            content={"detail": str(exc)},
-        )
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        logger.error("firebase.not_configured", error=str(exc))
+        raise HTTPException(status_code=503, detail="Firebase is not configured") from exc
+    except Exception as exc:
+        logger.error("firebase.session_failed", error=str(exc))
+        raise HTTPException(status_code=401, detail="Could not authenticate with Firebase") from exc
 
-    token = create_session_token(user.id, user.email)
-    response = RedirectResponse(url="/", status_code=303)
-    _set_session_cookie(response, token)
-    return response
-
-
-@router.post("/login")
-async def login(request: Request, db: AsyncSession = Depends(get_db)):
-    """Log in with email + password."""
-    form = await request.form()
-    email = str(form.get("email", "")).strip().lower()
-    password = str(form.get("password", ""))
-
-    user = await authenticate_user(db, email, password)
-    if user is None:
-        return JSONResponse(
-            status_code=401,
-            content={"detail": "Invalid email or password"},
-        )
-
-    token = create_session_token(user.id, user.email)
-    response = RedirectResponse(url="/", status_code=303)
-    _set_session_cookie(response, token)
+    session_token = create_session_token(user.id, user.email)
+    response = JSONResponse(
+        content={
+            "status": "ok",
+            "user": {"id": user.id, "email": user.email, "name": user.name},
+        }
+    )
+    _set_session_cookie(response, session_token)
     return response
 
 
 @router.post("/logout")
 async def logout():
     """Clear the session cookie."""
-    response = RedirectResponse(url="/login", status_code=303)
+    response = RedirectResponse(url="/login?logged_out=1", status_code=303)
     response.delete_cookie(key=COOKIE_NAME, path="/")
     return response

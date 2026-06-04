@@ -1,104 +1,159 @@
-# SmartDigest
+<div align="center">
 
-> A production-grade async content pipeline — subscribe to topics, fetch articles from RSS feeds concurrently, summarise them with Google Gemini in a single batched API call, and receive a clean HTML email digest. Built on FastAPI, PostgreSQL, Redis, and ARQ.
+# 🧠 SmartDigest
 
-**Live demo:** [smartdigest-production.up.railway.app](https://smartdigest-production.up.railway.app)
+### *AI-Powered Content Briefings — Built for Depth, Not Just Speed*
+
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Railway-blueviolet?style=for-the-badge&logo=railway)](https://smartdigest-production.up.railway.app)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+
+> Stop drowning in tabs. SmartDigest fetches content from across the web, filters out the noise with a two-stage AI pipeline, and delivers a **personally relevant** briefing to your inbox — one that explains *why* each story matters to **you**.
+
+**[🚀 Try the Live Demo](https://smartdigest-production.up.railway.app)**  ·  **[📖 API Docs](https://smartdigest-production.up.railway.app/docs)**
+
+</div>
 
 ---
 
-## What it does
+## ✨ Why SmartDigest is Different
 
-You define a topic (e.g. "AI Research", "Backend Engineering"), pick from a curated list of RSS sources, and set a delivery schedule. SmartDigest handles the rest:
+Most newsletter tools give you a summary of what an article *says*.  
+**SmartDigest tells you what it *means for you*.**
 
-1. **Fetches** articles from your chosen feeds concurrently via async HTTP
-2. **Summarises** all articles in a single Gemini API batch call — maximising context window usage and minimising quota consumption
-3. **Delivers** a formatted HTML digest to your inbox via Resend
-4. **Tracks** every pipeline stage in PostgreSQL for full observability
+When you create a briefing, you don't just pick a topic — you describe your **intent**: what you're trying to learn, which keywords matter, examples of articles you find valuable, and what to ignore. The AI pipeline uses that intent at every stage:
+
+| Stage | What happens |
+|---|---|
+| 🔍 **Fetch** | Concurrent async scraping across RSS feeds + a purpose-built Hacker News scraper that fetches full article text (not just headlines) |
+| 🧹 **Heuristic Filter** | Keyword-weighted scoring instantly drops clearly irrelevant articles before spending any AI quota |
+| 🤖 **LLM Relevance Filter** | Gemini scores each remaining article 1–10 against your stated intent. Articles below the threshold are excluded. |
+| ✍️ **Intent-Aware Summary** | The surviving articles are summarised in a single batched Gemini call — but not generically. The prompt instructs the model to act as *your knowledgeable advisor*, extracting what matters and explaining why. |
+| 📧 **Delivery** | A clean HTML digest lands in your inbox via Resend |
+| 📊 **Observability** | Every stage transition is written to `pipeline_events` — you can inspect durations, failure reasons, and throughput from the live dashboard |
 
 ---
 
-## Architecture
+## 🏗️ Architecture
 
 ```
 Browser / API Client
         │
         ▼
-┌──────────────────┐       enqueue job       ┌───────────────────┐
-│  FastAPI (Web)   │ ──────────────────────► │    Redis Queue    │
-│  Uvicorn         │                         └─────────┬─────────┘
-└──────────────────┘                                   │ dequeue
-        │                                              ▼
-        │ async read/write               ┌─────────────────────────┐
-        ▼                                │      ARQ Worker         │
-┌──────────────────┐                     │  ┌───────────────────┐  │
-│    PostgreSQL    │ ◄───────────────────│  │  1. Fetch RSS     │  │
-│    (async ORM)   │                     │  │  2. Gemini AI     │  │
-└──────────────────┘                     │  │  3. Send Email    │  │
-                                         │  └───────────────────┘  │
-                                         └─────────────────────────┘
+┌─────────────────────────────┐      enqueue job       ┌───────────────────┐
+│  FastAPI  (web service)     │ ─────────────────────► │    Redis Queue    │
+│  Uvicorn · Jinja2 · HTMX   │                         └─────────┬─────────┘
+│  SessionAuth · Rate Limit   │                                   │ dequeue
+└────────────┬────────────────┘                                   ▼
+             │ async read/write                ┌─────────────────────────────┐
+             ▼                                 │      ARQ Worker             │
+┌─────────────────────┐                        │  ┌─────────────────────┐   │
+│    PostgreSQL 16     │ ◄──────────────────── │  │  1. Fetch (async)   │   │
+│  SQLAlchemy 2 async  │                        │  │  2. Heuristic Filter│   │
+└─────────────────────┘                        │  │  3. LLM Filter      │   │
+                                               │  │  4. AI Summarise    │   │
+                                               │  │  5. Email Deliver   │   │
+                                               │  └─────────────────────┘   │
+                                               └─────────────────────────────┘
 ```
 
-The API server and background worker are **fully decoupled** — they communicate only through the Redis queue and the shared PostgreSQL database. The API returns `202 Accepted` immediately on trigger; the worker handles all long-running work asynchronously.
+The web server and background worker are **fully decoupled** — they share only the Redis queue and PostgreSQL. Every trigger returns `202 Accepted` immediately. The worker handles all long-running work.
 
 ---
 
-## Tech Stack
+## 🔥 Features
 
-| Layer | Technology |
-|---|---|
-| Web framework | FastAPI 0.115 |
-| ASGI server | Uvicorn |
-| Database | PostgreSQL 16 |
-| ORM | SQLAlchemy 2.0 (fully async) |
-| Migrations | Alembic |
-| Task queue | ARQ (async Redis queue) |
-| Cache / broker | Redis 7 |
-| AI summarisation | Google Gemini 2.0 Flash (direct REST, no SDK) |
-| Email delivery | Resend API |
-| HTTP client | httpx (async) |
-| RSS parsing | feedparser |
-| Frontend | Jinja2 + HTMX + Tailwind CSS |
-| Rate limiting | slowapi |
-| Structured logging | structlog (JSON in production) |
-| Configuration | Pydantic Settings |
-| Deployment | Railway (web + worker as separate services) |
+### 🎯 Intent-Driven Briefings
+- Describe **what you want to learn**, not just a topic keyword
+- Provide example articles that represent valuable content
+- Set explicit **exclusion keywords** to suppress noise topics
+- The AI pipeline passes your intent context through every stage
+
+### ⚡ Production-Grade Pipeline
+- Concurrent feed fetching with per-source scraper dispatch
+- **Purpose-built Hacker News scraper** — fetches full linked article text via `trafilatura`, not just RSS headlines
+- Two-stage filtering: fast heuristic pre-filter → LLM relevance scoring
+- Single-batch Gemini summarisation (one API call per digest regardless of article count)
+- **Model fallback chain**: `gemini-2.0-flash` → `gemini-2.5-flash` → lite variants — maximises uptime on free-tier quotas
+
+### 🔐 Secure Authentication
+- Firebase Auth for Email/Password and Google sign-in
+- Backend-verified Firebase ID tokens exchanged for JWT sessions in `httpOnly` cookies (`SameSite=Lax`)
+- **Three-layer bfcache defence** — authenticated pages are never stored in browser history
+- 3-day rolling sessions; `Cache-Control: no-store` on all protected HTML
+
+### 📊 Full Observability
+- Every pipeline stage (`fetch` / `heuristic` / `llm_filter` / `summarise` / `deliver`) logged to `pipeline_events`
+- Live metrics panel on dashboard: 24h job counts, per-stage latency, last error — HTMX-polled every 5s
+- `/api/v1/metrics/pipeline` endpoint backed by real SQL aggregates
+- Structured JSON logging via `structlog` in production, pretty console in development
+
+### 📱 Responsive Dashboard
+- HTMX-powered UI — no JavaScript framework, no build step
+- **Mobile bottom navigation bar** with safe-area insets for notched iPhones
+- Schedule times shown in the **user's local timezone** (auto-detected via `Intl.DateTimeFormat`)
+- Skeleton loading states, toast notifications, inline validation
+
+### 🗓️ Scheduled Delivery
+- ARQ cron job at 06:00 UTC enqueues all active briefings automatically
+- Flexible schedule options: daily at 6 AM, 7 AM, 8 AM, noon, or 6 PM UTC
+- Manual trigger via dashboard ("Run Now") — rate-limited to 3 runs/hour
+
+### 🛠️ Developer-Friendly
+- Dev mode: if `RESEND_API_KEY` is unset, emails are printed to console
+- Full OpenAPI docs at `/docs` and `/redoc`
+- CLI commands for seeding sources and creating users
+- Alembic migrations with async support
 
 ---
 
-## Features
+## 🧰 Tech Stack
 
-- **User authentication** — email + password accounts with bcrypt hashing, JWT sessions via httpOnly cookies
-- **Plan column** — `free`/`pro` on users table for future monetisation (not enforced yet)
-- **Subscription management** — full CRUD via REST API and dashboard UI, scoped to authenticated user
-- **Async pipeline** — concurrent feed fetching, single-batch AI summarisation, non-blocking email delivery
-- **Model fallback** — if Gemini 2.0 Flash quota is exhausted, automatically falls back to 2.5 Flash, then lite models
-- **Rate limiting** — 3 pipeline triggers per hour per key (slowapi)
-- **Full observability** — every stage (fetch / summarise / deliver) written to `pipeline_events` with status, duration, and error details
-- **Live metrics panel** — HTMX-polled dashboard showing 24h stats, per-stage average latency, and last error
-- **Scheduled cron** — ARQ cron job enqueues all active subscriptions at 06:00 UTC daily
-- **Dev mode** — if `RESEND_API_KEY` is unset, emails are printed to console; app runs fully without external accounts
-- **Structured logging** — JSON in production, pretty console in development (structlog)
+| Layer | Technology | Why |
+|---|---|---|
+| Web framework | **FastAPI 0.115** | Async-native, auto-generated OpenAPI, excellent DX |
+| ASGI server | **Uvicorn** | Production-ready, matches Railway's Procfile model |
+| Database | **PostgreSQL 16** | JSONB for sources/keywords, partial indexes on active rows |
+| ORM | **SQLAlchemy 2.0 (async)** | Fully async, typed `Mapped[]` columns |
+| Migrations | **Alembic** | Async-configured, runs on every deploy |
+| Task queue | **ARQ** | Async Redis queue — simpler than Celery, first-class async |
+| Cache / broker | **Redis 7** | Backs both ARQ queue and `slowapi` rate limits |
+| AI summarisation | **Google Gemini 2.0 Flash** | Direct REST via `httpx` — no SDK lock-in, stays in the async event loop |
+| Email delivery | **Resend API** | 3,000 free emails/month, no credit card |
+| HTTP client | **httpx (async)** | Async, connection pooling, timeout handling |
+| RSS parsing | **feedparser** | Battle-tested, handles malformed feeds |
+| Full-text extraction | **trafilatura** | Used by the HN scraper to pull article body from linked URLs |
+| Frontend | **Jinja2 + HTMX + Tailwind CDN** | Server-rendered, zero build step, HTMX for partial updates |
+| Rate limiting | **slowapi** | Redis-backed per-user limits |
+| Structured logging | **structlog** | JSON in prod, pretty console in dev |
+| Configuration | **Pydantic Settings** | Env-file + OS env, validated at startup |
+| Auth | **Firebase Auth + PyJWT** | Firebase ID tokens exchanged for signed httpOnly cookie sessions |
+| Deployment | **Railway** | Two-service split: web + worker |
 
 ---
 
-## Database Schema
+## 📐 Database Schema
 
 ```
-users             — email + bcrypt password hash, name, plan (free/pro), login timestamps
-curated_sources   — pre-approved RSS feed list (seeded via CLI)
-subscriptions     — topic + sources + email + cron schedule, scoped to user_id
-digests           — one record per pipeline run (status, delivered_at)
-digest_items      — one record per article (title, summary, URL, source)
-pipeline_events   — observability log: stage × status × duration_ms × error_msg
+users             — email, firebase_uid, name, plan (free/pro), last_login_at
+curated_sources   — pre-approved RSS feeds (seeded via CLI); name, rss_url, active
+briefings         — user's configured feed: topic, intent_description, keywords[],
+                    example_articles[], exclusion_keywords[], sources[], schedule, email
+digests           — one record per pipeline run: briefing_id, status, delivered_at
+digest_items      — one row per article: title, summary, source_url, item_url, fetch_duration_ms
+pipeline_events   — observability log: stage × status × duration_ms × error_msg × item_count
 ```
+
+Partial index on `briefings (user_id) WHERE active = true` — keeps scheduler query fast at scale.
 
 ---
 
-## Getting Started (Local)
+## 🚀 Getting Started (Local)
 
 ### Prerequisites
 
-- Python 3.9+
+- Python 3.11+
 - Docker (for PostgreSQL and Redis)
 - [Resend](https://resend.com) API key (free tier)
 - [Google AI Studio](https://aistudio.google.com) API key (free tier)
@@ -125,14 +180,16 @@ docker run -d --name smartdigest-redis \
 
 ### 3. Configure environment
 
+Create a `.env` file in the project root:
+
 ```env
-# .env
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/smartdigest
 REDIS_URL=redis://localhost:6379
 GEMINI_API_KEY=your_key_here
-RESEND_API_KEY=your_key_here
+RESEND_API_KEY=your_key_here          # Omit entirely for dev mode (emails logged to console)
 RESEND_FROM_EMAIL=onboarding@resend.dev
 JWT_SECRET=generate-a-random-secret-here
+FIREBASE_SERVICE_ACCOUNT_PATH=~/.config/smartdigest/firebase/firebase-admin-service-account.json
 ENV=development
 ```
 
@@ -143,48 +200,40 @@ alembic upgrade head
 python -m app.cli seed_sources
 ```
 
-### 5. Create a user account
+### 5. Run both services
 
 ```bash
-python -m app.cli create_user you@example.com yourpassword "Your Name"
-```
-
-### 6. Run both services
-
-```bash
-# Terminal 1 — API
+# Terminal 1 — Web server
 uvicorn app.main:app --reload --port 8000
 
-# Terminal 2 — Worker
+# Terminal 2 — Background worker
 python worker.py
 ```
 
-Open **http://localhost:8000** in your browser.
+Open **http://localhost:8000** and log in.
 
 ---
 
-## Deploying on Railway
+## ☁️ Deploying on Railway
 
-SmartDigest runs as two separate Railway services — web and worker — each with its own `railway.toml`.
+SmartDigest splits into two Railway services — each with its own `railway.toml`.
 
-### Step 1 — Add services in Railway dashboard
+### Step 1 — Set up the project
 
 1. Create a new Railway project
-2. Add **PostgreSQL** plugin → Railway auto-injects `DATABASE_URL`
-3. Add **Redis** plugin → Railway auto-injects `REDIS_URL`
-4. Add a **GitHub service** (your repo) → **web** service
-5. Add a second **GitHub service** (same repo) → **worker** service
+2. Add the **PostgreSQL** plugin → `DATABASE_URL` auto-injected
+3. Add the **Redis** plugin → `REDIS_URL` auto-injected
+4. Add a **GitHub service** (your repo) → name it **web**
+5. Add a second **GitHub service** (same repo) → name it **worker**
 
-### Step 2 — Point each service to its config
+### Step 2 — Point each service to its config file
 
-| Service | Config File Path |
+| Service | Config File Path in Railway Settings |
 |---|---|
-| Web | `services/web/railway.toml` |
-| Worker | `services/worker/railway.toml` |
+| web | `services/web/railway.toml` |
+| worker | `services/worker/railway.toml` |
 
-Set in: service → **Settings → Config File Path**
-
-### Step 3 — Set environment variables (both services)
+### Step 3 — Environment variables (both services)
 
 | Variable | Value |
 |---|---|
@@ -193,88 +242,167 @@ Set in: service → **Settings → Config File Path**
 | `GEMINI_API_KEY` | Your Google AI Studio key |
 | `RESEND_API_KEY` | Your Resend key |
 | `RESEND_FROM_EMAIL` | Your verified sender email |
-| `JWT_SECRET` | Random secret for signing sessions |
+| `JWT_SECRET` | Random secret — `openssl rand -hex 32` |
 | `ENV` | `production` |
 
 ### Step 4 — Deploy
 
-Push to GitHub. Railway will run `alembic upgrade head && python -m app.cli seed_sources` before starting, ensuring the DB is always up to date.
+Push to GitHub. Railway runs `alembic upgrade head && python -m app.cli seed_sources` automatically before starting — the database is always up to date on every deploy.
 
 ---
 
-## API Reference
+## 📡 API Reference
 
-Authentication is handled via httpOnly session cookies. Log in at `/login` to get a session.
+Authentication uses httpOnly JWT session cookies set at login. All API endpoints under `/api/v1/` require an active session.
 
-Public endpoints (no auth): `GET /api/v1/sources`, `POST /auth/register`, `POST /auth/login`.
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/auth/firebase/session` | ✗ | Exchange a Firebase ID token for the `sd_session` cookie |
+| `POST` | `/auth/logout` | ✓ | Log out — clears cookie |
+| `GET` | `/api/v1/sources` | ✗ | List all curated RSS sources |
+| `POST` | `/api/v1/briefings` | ✓ | Create a briefing |
+| `GET` | `/api/v1/briefings` | ✓ | List your briefings |
+| `GET` | `/api/v1/briefings/{id}` | ✓ | Get a single briefing |
+| `PATCH` | `/api/v1/briefings/{id}` | ✓ | Update a briefing |
+| `DELETE` | `/api/v1/briefings/{id}` | ✓ | Soft-delete a briefing |
+| `POST` | `/api/v1/briefings/{id}/trigger` | ✓ | Manually trigger pipeline (3/hour) |
+| `GET` | `/api/v1/digests` | ✓ | List digests |
+| `GET` | `/api/v1/digests/{id}` | ✓ | Digest detail with articles |
+| `GET` | `/api/v1/metrics/pipeline` | ✓ | 24h pipeline stats |
+| `GET` | `/jobs/{job_id}` | ✓ | Poll background job status |
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/auth/register` | Create a new account |
-| `POST` | `/auth/login` | Log in (sets session cookie) |
-| `POST` | `/auth/logout` | Log out (clears cookie) |
-| `GET` | `/api/v1/sources` | List available RSS sources |
-| `POST` | `/api/v1/subscriptions` | Create a subscription |
-| `GET` | `/api/v1/subscriptions` | List subscriptions |
-| `PATCH` | `/api/v1/subscriptions/{id}` | Update a subscription |
-| `DELETE` | `/api/v1/subscriptions/{id}` | Soft-delete a subscription |
-| `POST` | `/api/v1/subscriptions/{id}/trigger` | Trigger pipeline (3/hour) |
-| `GET` | `/api/v1/digests` | List digests |
-| `GET` | `/api/v1/digests/{id}` | Digest detail with articles |
-| `GET` | `/api/v1/metrics/pipeline` | 24h pipeline stats |
-
-Interactive docs: **`/docs`**
+Interactive API explorer: **[/docs](https://smartdigest-production.up.railway.app/docs)**
 
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 SmartDigest/
 ├── app/
-│   ├── api/           # FastAPI routers (auth, sources, subscriptions, digests, metrics, jobs)
-│   ├── middleware/    # JWT cookie auth + rate limiting
-│   ├── models/        # SQLAlchemy ORM models
-│   ├── schemas/       # Pydantic request/response schemas
-│   ├── services/      # Business logic
-│   │   ├── fetcher.py     # Concurrent async RSS fetching
-│   │   ├── summariser.py  # Gemini batch summarisation with model fallback
-│   │   ├── mailer.py      # Resend email delivery
-│   │   ├── metrics.py     # SQL aggregates from pipeline_events
-│   │   └── scheduler.py   # ARQ job functions + cron
-│   ├── config.py      # Pydantic Settings — all env vars in one place
-│   ├── database.py    # Async engine + session factory
-│   ├── main.py        # App factory + Jinja2 HTML routes
-│   └── cli.py         # Management commands (create_key, seed_sources)
-├── templates/         # Jinja2 + HTMX dashboard
-│   └── partials/      # Live-polled metric panels
-├── alembic/           # Database migrations
+│   ├── api/
+│   │   ├── auth.py          # Firebase session exchange + logout
+│   │   ├── briefings.py     # Full CRUD + trigger endpoint
+│   │   ├── digests.py       # Digest list + detail
+│   │   ├── jobs.py          # ARQ job status polling
+│   │   ├── metrics.py       # Pipeline health aggregates
+│   │   └── sources.py       # Curated source listing
+│   │
+│   ├── middleware/
+│   │   ├── auth.py          # JWT cookie middleware + bfcache headers
+│   │   └── rate_limit.py    # slowapi limiter setup
+│   │
+│   ├── models/              # SQLAlchemy 2.0 ORM models
+│   │   ├── user.py
+│   │   ├── briefing.py      # Core entity — intent + sources + schedule
+│   │   ├── digest.py
+│   │   ├── digest_item.py
+│   │   ├── pipeline_event.py
+│   │   └── curated_source.py
+│   │
+│   ├── schemas/             # Pydantic request/response models
+│   │
+│   ├── services/
+│   │   ├── auth.py          # Firebase verification + JWT session helpers
+│   │   ├── fetcher.py       # Concurrent multi-source article fetching
+│   │   ├── intent.py        # Intent context builder
+│   │   ├── mailer.py        # Resend email delivery
+│   │   ├── metrics.py       # SQL aggregates from pipeline_events
+│   │   ├── scheduler.py     # ARQ job: full pipeline (fetch→filter→summarise→deliver)
+│   │   ├── summariser.py    # Gemini batch summarisation + model fallback
+│   │   │
+│   │   ├── filters/
+│   │   │   ├── heuristic.py     # Keyword-weighted pre-filter
+│   │   │   └── llm_relevance.py # Gemini 1–10 relevance scoring
+│   │   │
+│   │   └── scrapers/
+│   │       ├── base.py          # BaseScraper interface + RawArticle dataclass
+│   │       ├── hackernews.py    # Full-text HN scraper (trafilatura)
+│   │       └── rss_generic.py  # Generic feedparser-based scraper
+│   │
+│   ├── config.py            # Pydantic Settings (all env vars)
+│   ├── database.py          # Async engine + session factory
+│   ├── main.py              # FastAPI app factory + HTML routes
+│   └── cli.py               # Management commands
+│
+├── templates/               # Jinja2 + HTMX templates
+│   ├── base.html            # Layout: sidebar, mobile nav, bfcache defence
+│   ├── dashboard.html       # Briefing cards + recent digests + create drawer
+│   ├── digest_detail.html   # Per-digest article view
+│   ├── digests.html         # Full digest history
+│   ├── metrics.html         # Pipeline observability page
+│   ├── login.html
+│   └── partials/
+│       ├── briefing_card.html    # HTMX-swappable card
+│       ├── digest_row.html
+│       ├── metrics_panel.html    # Polled every 5s
+│       └── metrics_full.html
+│
+├── alembic/                 # Database migrations (async-configured)
+│   └── versions/
+│
 ├── services/
 │   ├── web/railway.toml     # Railway web service config
 │   └── worker/railway.toml  # Railway worker service config
-├── worker.py          # ARQ worker entrypoint + cron registration
-└── requirements.txt
+│
+├── worker.py                # ARQ worker entrypoint + cron registration
+├── requirements.txt
+└── Procfile                 # Fallback for single-service deployments
 ```
 
 ---
 
-## Design Notes
+## 🧠 Design Decisions
 
-**Direct REST over SDK (Gemini)** — Calling the Gemini REST API directly via `httpx` removes the dependency on Google's Python SDK release cycle. The API surface used is stable, and the async HTTP client fits naturally into the event loop.
+**Intent context propagates through the entire pipeline**  
+Most digest tools summarise articles generically. SmartDigest passes the user's `intent_description`, `keywords`, and `example_articles` to both the LLM filter and the summariser. The model is prompted to act as a *knowledgeable advisor*, not a compression algorithm.
 
-**Single-batch summarisation** — All articles for a digest are sent to Gemini in one prompt. This uses the large context window efficiently and costs one API call per digest regardless of article count — important for staying within free-tier RPM limits.
+**Two-stage filtering minimises cost without sacrificing quality**  
+The heuristic filter (regex keyword scoring) runs first for free. Only articles passing that threshold are scored by the LLM. This keeps Gemini API usage proportional to actual relevance, not feed volume.
 
-**Model fallback** — Gemini free-tier quotas are per-model, not shared. The summariser tries `gemini-2.0-flash` first, then falls back through `gemini-2.5-flash` and lite variants — maximising uptime without requiring a paid plan.
+**Direct REST over SDK (Gemini)**  
+Calling the Gemini REST API directly via `httpx` removes SDK release-cycle dependency, and `httpx.AsyncClient` integrates naturally into FastAPI's async event loop without thread pool overhead.
 
-**Decoupled worker** — The web server never blocks on pipeline work. A trigger request enqueues a job to Redis and returns `202 Accepted` immediately. The worker picks it up asynchronously.
+**Single-batch summarisation**  
+All articles for a digest are summarised in one Gemini call. This uses the large context window efficiently and costs exactly one API call per digest run — critical for staying within free-tier RPM limits.
 
-**Cookie-based JWT auth** — The app is browser-first (Jinja2 + HTMX), so httpOnly cookies are the natural auth mechanism. They’re sent automatically on every request, eliminating the need for JavaScript to inject Authorization headers. `SameSite=Lax` prevents CSRF on navigations.
+**Model fallback chain**  
+Free-tier Gemini quotas are per-model, not shared. The summariser tries `gemini-2.0-flash` → `gemini-2.5-flash` → lite variants in sequence. A quota exhaustion on one model doesn't fail the digest — it silently upgrades to the next available model.
 
-**Plan column for future monetisation** — A `plan` field (`free`/`pro`) lives on the `users` table from day one. It’s not enforced yet, but it’s ready for gating features (e.g. more sources, higher trigger rate limits) without a schema migration.
+**Decoupled worker**  
+The web server never waits on pipeline work. A trigger enqueues a job to Redis and returns `202 Accepted` in milliseconds. The worker picks it up asynchronously. Both services share only the queue and the database — they can be scaled, restarted, or redeployed independently.
+
+**Cookie-based JWT auth**  
+SmartDigest is browser-first (Jinja2 + HTMX), so Firebase sign-in is exchanged for an app-owned `httpOnly` cookie. That keeps protected routes server-side, avoids storing auth tokens in JavaScript, and lets `SameSite=Lax` protect normal navigations.
+
+**Purpose-built HN scraper**  
+Hacker News RSS feeds contain only titles and links. The dedicated `HackerNewsScraper` fetches each linked article and extracts full body text using `trafilatura`, dramatically improving summarisation quality for HN sources.
+
+**Plan column for future monetisation**  
+A `plan` field (`free`/`pro`) lives on `users` from day one. It's not enforced yet but avoids a schema migration when gating features like higher trigger limits or more sources per briefing.
 
 ---
 
-## License
+## 🗺️ Roadmap
 
-MIT
+- [ ] Webhook delivery on digest completion (HMAC-SHA256 signed)
+- [ ] Per-briefing custom LLM prompt overrides
+- [ ] Slack / Discord delivery channel
+- [ ] CSV export of digest history
+- [ ] Per-user rate-limit dashboard
+- [ ] Custom RSS source addition (beyond curated list)
+- [ ] Unit + integration test suite (pytest-asyncio)
 
+---
+
+## 📄 License
+
+MIT — see [LICENSE](LICENSE)
+
+---
+
+<div align="center">
+
+Built with ☕ by [Burhan Ahmad Khan](https://github.com/BuriAhmad)
+
+⭐ Star this repo if you found it useful

@@ -23,12 +23,11 @@ class WorkerSettings:
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
     functions = [run_pipeline]
 
-    # Daily cron at 06:00 UTC — enqueue digest pipelines for all active briefings
+    # Check every 30 minutes; enqueue_scheduled_digests matches briefing.schedule.
     cron_jobs = [
         cron(
             enqueue_scheduled_digests,
-            hour={6},
-            minute={0},
+            minute={0, 30},
             run_at_startup=False,
         ),
     ]

@@ -6,14 +6,23 @@ from typing import List, Optional
 from pydantic import BaseModel, field_validator
 
 
-# Allowed cron schedules (expandable)
-ALLOWED_SCHEDULES = {
-    "0 7 * * *",   # Daily 7 AM UTC
-    "0 6 * * *",   # Daily 6 AM UTC
-    "0 8 * * *",   # Daily 8 AM UTC
-    "0 12 * * *",  # Daily noon UTC
-    "0 18 * * *",  # Daily 6 PM UTC
-}
+def validate_daily_schedule(v: str) -> str:
+    """Accept daily cron schedules at any 30-minute interval."""
+    parts = v.strip().split()
+    if len(parts) != 5 or parts[2:] != ["*", "*", "*"]:
+        raise ValueError("Schedule must be a daily cron expression")
+
+    try:
+        minute = int(parts[0])
+        hour = int(parts[1])
+    except ValueError as exc:
+        raise ValueError("Schedule hour and minute must be numbers") from exc
+
+    if hour < 0 or hour > 23:
+        raise ValueError("Schedule hour must be between 0 and 23")
+    if minute not in {0, 30}:
+        raise ValueError("Schedule minute must be 00 or 30")
+    return f"{minute} {hour} * * *"
 
 
 class BriefingCreate(BaseModel):
@@ -79,11 +88,7 @@ class BriefingCreate(BaseModel):
     @field_validator("schedule")
     @classmethod
     def schedule_allowed(cls, v: str) -> str:
-        if v not in ALLOWED_SCHEDULES:
-            raise ValueError(
-                f"Schedule must be one of: {', '.join(sorted(ALLOWED_SCHEDULES))}"
-            )
-        return v
+        return validate_daily_schedule(v)
 
     @field_validator("exclusion_keywords")
     @classmethod
@@ -160,10 +165,8 @@ class BriefingUpdate(BaseModel):
     @field_validator("schedule")
     @classmethod
     def schedule_allowed(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None and v not in ALLOWED_SCHEDULES:
-            raise ValueError(
-                f"Schedule must be one of: {', '.join(sorted(ALLOWED_SCHEDULES))}"
-            )
+        if v is not None:
+            return validate_daily_schedule(v)
         return v
 
 

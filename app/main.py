@@ -100,12 +100,14 @@ def create_app() -> FastAPI:
     @application.get("/login", response_class=HTMLResponse)
     async def login_page(request: Request):
         """Login / register page."""
+        settings = get_settings()
         # If already logged in, redirect to dashboard
         if hasattr(request.state, "user_id"):
             return RedirectResponse(url="/", status_code=303)
         return templates.TemplateResponse("login.html", {
             "request": request,
             "active_page": "login",
+            "firebase_config": settings.firebase_web_config,
         })
 
     @application.get("/", response_class=HTMLResponse)
@@ -210,6 +212,17 @@ def create_app() -> FastAPI:
         return templates.TemplateResponse("partials/metrics_panel.html", {
             "request": request,
             "metrics": metrics,
+        })
+
+    @application.get("/account/security", response_class=HTMLResponse)
+    async def account_security_page(request: Request):
+        """Account security page for Firebase password changes."""
+        settings = get_settings()
+        return templates.TemplateResponse("account_security.html", {
+            "request": request,
+            "user_email": request.state.user_email,
+            "active_page": "account",
+            "firebase_config": settings.firebase_web_config,
         })
 
     @application.get("/digests", response_class=HTMLResponse)

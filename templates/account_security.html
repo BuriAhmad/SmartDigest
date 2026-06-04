@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}Account Security — SmartDigest{% endblock %}
+
+{% block content %}
+<div class="header">
+  <div>
+    <h1>Account security</h1>
+    <p class="subtitle">Manage your SmartDigest sign-in password.</p>
+  </div>
+</div>
+
+<section class="card" style="max-width:520px;">
+  <h3 style="font-size:16px;margin-bottom:10px;">Google sign-in</h3>
+  <p class="subtitle" style="margin-bottom:14px;">Connect Google to this account so you can use Continue with Google next time.</p>
+  <div id="google-link-message" class="form-error" style="margin-bottom:12px;"></div>
+  <button type="button" id="link-google-btn" class="btn btn-outline" style="margin-bottom:24px;">Connect Google</button>
+
+  <h3 style="font-size:16px;margin-bottom:16px;">Change password</h3>
+  <form id="change-password-form">
+    <div class="form-group">
+      <label class="form-label">New password</label>
+      <input type="password" id="new-password" required minlength="8" autocomplete="new-password" class="form-input">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Confirm new password</label>
+      <input type="password" id="confirm-password" required minlength="8" autocomplete="new-password" class="form-input">
+    </div>
+    <div id="password-message" class="form-error"></div>
+    <button type="submit" id="change-password-btn" class="btn btn-primary">Update password</button>
+  </form>
+</section>
+{% endblock %}
+
+{% block head %}
+{{ super() }}
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+import {
+    getAuth,
+    GoogleAuthProvider,
+    linkWithPopup,
+    onAuthStateChanged,
+    updatePassword
+} from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
+
+var firebaseConfig = {{ firebase_config | tojson }};
+var app = initializeApp(firebaseConfig);
+var auth = getAuth(app);
+var googleProvider = new GoogleAuthProvider();
+var currentFirebaseUser = null;
+onAuthStateChanged(auth, function(user) {
+    currentFirebaseUser = user;
+    updateGoogleLinkState();
+});
+
+function setMessage(id, message) {
+    var el = document.getElementById(id);
+    el.textContent = message;
+    el.classList.add("visible");
+}
+
+function firebasePasswordMessage(error) {
+    var code = error && error.code ? error.code : "";
+    var messages = {
+        "auth/requires-recent-login": "Please log out, log in again, then retry this change.",
+        "auth/weak-password": "Password should be at least 6 characters."
+    };
+    return messages[code] || "Could not update password. Please try again.";
+}
+
+function googleLinkMessage(error) {
+    var code = error && error.code ? error.code : "";
+    var messages = {
+        "auth/credential-already-in-use": "That Google account is already connected to another Firebase user.",
+        "auth/popup-closed-by-user": "Google connection was closed before finishing.",
+        "auth/provider-already-linked": "Google is already connected to this account.",
+        "auth/requires-recent-login": "Please log out, log in again, then retry this change."
+    };
+    return messages[code] || "Could not connect Google. Please try again.";
+}
+
+function updateGoogleLinkState() {
+    var button = document.getElementById("link-google-btn");
+    var message = document.getElementById("google-link-message");
+    if (!button || !currentFirebaseUser) return;
+
+    var linked = currentFirebaseUser.providerData.some(function(provider) {
+        return provider.providerId === "google.com";
+    });
+    if (linked) {
+        button.disabled = true;
+        button.textContent = "Google connected";
+        message.textContent = "Google sign-in is connected to this account.";
+        message.classList.add("visible");
+    }
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+    document.getElementById("link-google-btn").addEventListener("click", async function() {
+        var button = document.getElementById("link-google-btn");
+        var message = document.getElementById("google-link-message");
+        message.classList.remove("visible");
+
+        if (!currentFirebaseUser) {
+            setMessage("google-link-message", "Please log out and log in again before connecting Google.");
+            return;
+        }
+
+        button.disabled = true;
+        button.textContent = "Opening Google...";
+        try {
+            await linkWithPopup(currentFirebaseUser, googleProvider);
+            setMessage("google-link-message", "Google sign-in connected.");
+            updateGoogleLinkState();
+        } catch(ex) {
+            setMessage("google-link-message", googleLinkMessage(ex));
+        } finally {
+            button.disabled = false;
+            updateGoogleLinkState();
+            if (!button.disabled) button.textContent = "Connect Google";
+        }
+    });
+
+    document.getElementById("change-password-form").addEventListener("submit", async function(e) {
+        e.preventDefault();
+        var message = document.getElementById("password-message");
+        var button = document.getElementById("change-password-btn");
+        var password = document.getElementById("new-password").value;
+        var confirm = document.getElementById("confirm-password").value;
+        message.classList.remove("visible");
+
+        if (password !== confirm) {
+            setMessage("password-message", "Passwords do not match.");
+            return;
+        }
+        if (!currentFirebaseUser) {
+            setMessage("password-message", "Please log out and log in again before changing your password.");
+            return;
+        }
+
+        button.disabled = true;
+        button.textContent = "Updating...";
+        try {
+            await updatePassword(currentFirebaseUser, password);
+            setMessage("password-message", "Password updated.");
+        } catch(ex) {
+            setMessage("password-message", firebasePasswordMessage(ex));
+        } finally {
+            button.disabled = false;
+            button.textContent = "Update password";
+        }
+    });
+});
+</script>
+{% endblock %}

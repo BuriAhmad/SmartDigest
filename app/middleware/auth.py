@@ -20,8 +20,7 @@ COOKIE_NAME = "sd_session"
 # Paths that never require authentication
 EXCLUDED_PATHS = {
     ("GET", "/login"),
-    ("POST", "/auth/login"),
-    ("POST", "/auth/register"),
+    ("POST", "/auth/firebase/session"),
     ("POST", "/auth/logout"),
     ("GET", "/api/v1/sources"),
 }

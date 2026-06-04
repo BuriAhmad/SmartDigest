@@ -30,6 +30,7 @@ async def create_briefing(
     db: AsyncSession = Depends(get_db),
 ) -> BriefingResponse:
     """Create a new briefing."""
+    _ensure_delivery_email_matches_account(payload.email, request)
     briefing = Briefing(
         user_id=request.state.user_id,
         topic=payload.topic,
@@ -86,6 +87,8 @@ async def update_briefing(
     briefing = await _get_owned_briefing(briefing_id, request, db)
 
     update_data = payload.model_dump(exclude_unset=True)
+    if "email" in update_data:
+        _ensure_delivery_email_matches_account(update_data["email"], request)
     for field, value in update_data.items():
         setattr(briefing, field, value)
 
@@ -118,6 +121,7 @@ async def trigger_pipeline(
     briefing = await _get_owned_briefing(briefing_id, request, db)
     if not briefing.active:
         raise HTTPException(status_code=404, detail="Briefing is inactive")
+    _ensure_delivery_email_matches_account(briefing.email, request)
 
     settings = get_settings()
     job_id = f"arq:job:{uuid.uuid4().hex[:12]}"
@@ -136,6 +140,25 @@ async def trigger_pipeline(
         raise HTTPException(status_code=503, detail="Could not enqueue job — Redis unavailable")
 
     return {"job_id": job_id, "status": "queued"}
+
+
+def _normalise_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def _ensure_delivery_email_matches_account(email: str, request: Request) -> None:
+    """Only allow delivery to the authenticated account email.
+
+    Digests are displayed by account ownership. Allowing arbitrary delivery
+    recipients means a digest can be emailed to one person while being visible
+    only in another user's Digests page.
+    """
+    account_email = getattr(request.state, "user_email", "")
+    if _normalise_email(email) != _normalise_email(account_email):
+        raise HTTPException(
+            status_code=400,
+            detail="Delivery email must match your account email.",
+        )
 
 
 async def _get_owned_briefing(

@@ -20,37 +20,50 @@
       <button onclick="showTab('register')" id="tab-register" style="flex:1;padding:8px 0;font-size:14px;font-weight:500;cursor:pointer;border:none;background:none;font-family:inherit;border-bottom:2px solid transparent;color:var(--muted-fg);transition:all 0.15s;">Sign Up</button>
     </div>
 
+    <button type="button" id="google-btn" class="btn btn-outline" style="width:100%;justify-content:center;margin-bottom:16px;">
+      <span style="font-weight:700;">G</span>
+      Continue with Google
+    </button>
+    <div id="google-errors" class="form-error" style="margin-top:-4px;margin-bottom:12px;"></div>
+
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;color:var(--muted-fg);font-size:12px;">
+      <div style="height:1px;background:var(--border);flex:1;"></div>
+      <span>Email</span>
+      <div style="height:1px;background:var(--border);flex:1;"></div>
+    </div>
+
     <!-- Login form -->
-    <form id="login-form" action="/auth/login" method="POST">
+    <form id="login-form">
       <div class="form-group">
         <label class="form-label">Email</label>
-        <input type="email" name="email" id="login-email" required placeholder="you@example.com" autofocus class="form-input">
+        <input type="email" name="email" id="login-email" required placeholder="you@example.com" autocomplete="email" autofocus class="form-input">
       </div>
       <div class="form-group">
         <label class="form-label">Password</label>
-        <input type="password" name="password" id="login-password" required placeholder="••••••••" minlength="8" class="form-input">
+        <input type="password" name="password" id="login-password" required placeholder="••••••••" minlength="8" autocomplete="current-password" class="form-input">
       </div>
       <div id="login-errors" class="form-error"></div>
       <button type="submit" id="login-btn" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px;">Log In</button>
+      <button type="button" id="forgot-btn" class="btn btn-ghost" style="width:100%;justify-content:center;margin-top:8px;">Forgot password?</button>
     </form>
 
     <!-- Register form -->
-    <form id="register-form" action="/auth/register" method="POST" style="display:none;">
+    <form id="register-form" style="display:none;">
       <div class="form-group">
         <label class="form-label">Name</label>
-        <input type="text" name="name" id="reg-name" required placeholder="Your name" class="form-input">
+        <input type="text" name="name" id="reg-name" required placeholder="Your name" autocomplete="name" class="form-input">
       </div>
       <div class="form-group">
         <label class="form-label">Email</label>
-        <input type="email" name="email" id="reg-email" required placeholder="you@example.com" class="form-input">
+        <input type="email" name="email" id="reg-email" required placeholder="you@example.com" autocomplete="email" class="form-input">
       </div>
       <div class="form-group">
         <label class="form-label">Password</label>
-        <input type="password" name="password" id="reg-password" required placeholder="Min 8 characters" minlength="8" class="form-input">
+        <input type="password" name="password" id="reg-password" required placeholder="Min 8 characters" minlength="8" autocomplete="new-password" class="form-input">
       </div>
       <div class="form-group">
         <label class="form-label">Confirm Password</label>
-        <input type="password" id="reg-confirm" required placeholder="Repeat password" minlength="8" class="form-input">
+        <input type="password" id="reg-confirm" required placeholder="Repeat password" minlength="8" autocomplete="new-password" class="form-input">
       </div>
       <div id="register-errors" class="form-error"></div>
       <button type="submit" id="register-btn" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px;">Create Account</button>
@@ -59,7 +72,36 @@
 </div>
 </div>
 
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+import {
+    createUserWithEmailAndPassword,
+    getAuth,
+    GoogleAuthProvider,
+    sendPasswordResetEmail,
+    signInWithEmailAndPassword,
+    signInWithPopup,
+    signOut,
+    updateProfile
+} from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
+
+var firebaseConfig = {{ firebase_config | tojson }};
+var firebaseReady = Boolean(firebaseConfig.apiKey && firebaseConfig.authDomain && firebaseConfig.projectId && firebaseConfig.appId);
+var auth = null;
+var googleProvider = null;
+
+if (firebaseReady) {
+    var firebaseApp = initializeApp(firebaseConfig);
+    auth = getAuth(firebaseApp);
+    googleProvider = new GoogleAuthProvider();
+    if (new URLSearchParams(window.location.search).get("logged_out")) {
+        signOut(auth).catch(function() {});
+        window.history.replaceState({}, document.title, "/login");
+    }
+} else {
+    showAuthError("login", "Firebase is not configured yet.");
+}
+
 function showTab(tab) {
     var loginForm = document.getElementById("login-form");
     var registerForm = document.getElementById("register-form");
@@ -84,65 +126,145 @@ function showTab(tab) {
         setTimeout(function() { document.getElementById("reg-name").focus(); }, 50);
     }
 }
+window.showTab = showTab;
+
+function showAuthError(scope, message) {
+    var errDiv = document.getElementById(scope + "-errors");
+    if (!errDiv) return;
+    errDiv.textContent = message;
+    errDiv.classList.add("visible");
+}
+
+function clearAuthErrors() {
+    ["google-errors", "login-errors", "register-errors"].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.classList.remove("visible");
+    });
+}
+
+function firebaseErrorMessage(error) {
+    var code = error && error.code ? error.code : "";
+    var messages = {
+        "auth/email-already-in-use": "An account already exists with this email.",
+        "auth/account-exists-with-different-credential": "This email already has a password login. Log in with email/password first, then connect Google from Account Security.",
+        "auth/credential-already-in-use": "That Google account is already connected to another account.",
+        "auth/invalid-email": "Enter a valid email address.",
+        "auth/invalid-credential": "Invalid email or password.",
+        "auth/operation-not-allowed": "Google sign-in is not enabled in Firebase Auth.",
+        "auth/popup-closed-by-user": "Google sign-in was closed before finishing.",
+        "auth/too-many-requests": "Too many attempts. Try again in a few minutes.",
+        "auth/unauthorized-domain": "Google sign-in is not allowed from this address. If the app is open on 127.0.0.1, reopen it at http://localhost:8000/login, or add 127.0.0.1 in Firebase Auth authorized domains.",
+        "auth/user-not-found": "No account exists with this email.",
+        "auth/weak-password": "Password should be at least 6 characters.",
+        "auth/wrong-password": "Invalid email or password."
+    };
+    return messages[code] || "Authentication failed" + (code ? " (" + code + ")" : "") + ". Please try again.";
+}
+
+async function exchangeFirebaseSession(firebaseUser, fallbackName) {
+    var idToken = await firebaseUser.getIdToken();
+    var resp = await fetch("/auth/firebase/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            idToken: idToken,
+            name: fallbackName || firebaseUser.displayName || ""
+        })
+    });
+
+    if (!resp.ok) {
+        var data = {};
+        try { data = await resp.json(); } catch(e) {}
+        throw new Error(data.detail || "Could not create session");
+    }
+
+    window.location.replace("/");
+}
+
+async function withButtonLoading(button, label, fn) {
+    var original = button.textContent;
+    button.disabled = true;
+    button.textContent = label;
+    try {
+        await fn();
+    } finally {
+        button.disabled = false;
+        button.textContent = original;
+    }
+}
 
 document.getElementById("login-form").addEventListener("submit", async function(e) {
     e.preventDefault();
-    var form = e.target;
-    var errDiv = document.getElementById("login-errors");
     var btn = document.getElementById("login-btn");
-    errDiv.classList.remove("visible");
-    btn.disabled = true;
-    btn.textContent = "Logging in…";
-
-    try {
-        var resp = await fetch(form.action, { method: "POST", body: new FormData(form), redirect: "follow" });
-        if (resp.redirected) { window.location.replace(resp.url); return; }
-        if (!resp.ok) {
-            var data = await resp.json();
-            errDiv.textContent = data.detail || "Login failed";
-            errDiv.classList.add("visible");
+    clearAuthErrors();
+    await withButtonLoading(btn, "Logging in…", async function() {
+        try {
+            if (!auth) throw new Error("Firebase is not configured yet.");
+            var email = document.getElementById("login-email").value.trim();
+            var password = document.getElementById("login-password").value;
+            var credential = await signInWithEmailAndPassword(auth, email, password);
+            await exchangeFirebaseSession(credential.user);
+        } catch(ex) {
+            showAuthError("login", firebaseErrorMessage(ex));
         }
-    } catch(ex) {
-        errDiv.textContent = "Network error: " + ex.message;
-        errDiv.classList.add("visible");
-    } finally {
-        btn.disabled = false;
-        btn.textContent = "Log In";
-    }
+    });
 });
 
 document.getElementById("register-form").addEventListener("submit", async function(e) {
     e.preventDefault();
-    var form = e.target;
-    var errDiv = document.getElementById("register-errors");
     var btn = document.getElementById("register-btn");
-    errDiv.classList.remove("visible");
+    clearAuthErrors();
 
+    var name = document.getElementById("reg-name").value.trim();
+    var email = document.getElementById("reg-email").value.trim();
     var password = document.getElementById("reg-password").value;
     var confirm  = document.getElementById("reg-confirm").value;
     if (password !== confirm) {
-        errDiv.textContent = "Passwords do not match.";
-        errDiv.classList.add("visible");
+        showAuthError("register", "Passwords do not match.");
         return;
     }
 
-    btn.disabled = true;
-    btn.textContent = "Creating account…";
+    await withButtonLoading(btn, "Creating account…", async function() {
+        try {
+            if (!auth) throw new Error("Firebase is not configured yet.");
+            var credential = await createUserWithEmailAndPassword(auth, email, password);
+            if (name) await updateProfile(credential.user, { displayName: name });
+            await exchangeFirebaseSession(credential.user, name);
+        } catch(ex) {
+            showAuthError("register", firebaseErrorMessage(ex));
+        }
+    });
+});
+
+document.getElementById("google-btn").addEventListener("click", async function() {
+    var btn = document.getElementById("google-btn");
+    clearAuthErrors();
+    await withButtonLoading(btn, "Opening Google…", async function() {
+        try {
+            if (!auth || !googleProvider) throw new Error("Firebase is not configured yet.");
+            var credential = await signInWithPopup(auth, googleProvider);
+            await exchangeFirebaseSession(credential.user);
+        } catch(ex) {
+            console.error("Google sign-in failed", ex);
+            showAuthError("google", firebaseErrorMessage(ex));
+        }
+    });
+});
+
+document.getElementById("forgot-btn").addEventListener("click", async function() {
+    clearAuthErrors();
+    var email = document.getElementById("login-email").value.trim();
+    if (!email) {
+        showAuthError("login", "Enter your email first, then click Forgot password.");
+        return;
+    }
 
     try {
-        var resp = await fetch(form.action, { method: "POST", body: new FormData(form), redirect: "follow" });
-        if (resp.redirected) { window.location.replace(resp.url); return; }
-        if (!resp.ok) {
-            var data = await resp.json();
-            errDiv.textContent = data.detail || "Registration failed";
-            errDiv.classList.add("visible");
-        }
+        if (!auth) throw new Error("Firebase is not configured yet.");
+        await sendPasswordResetEmail(auth, email);
+        showAuthError("login", "Password reset email sent. Check your inbox.");
     } catch(ex) {
-        errDiv.textContent = "Network error: " + ex.message;
-        errDiv.classList.add("visible");
-    } finally {
-        btn.disabled = false;
-        btn.textContent = "Create Account";
+        showAuthError("login", firebaseErrorMessage(ex));
     }
 });
 </script>

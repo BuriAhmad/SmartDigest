@@ -1,4 +1,4 @@
-"""User ORM model — email + password authentication."""
+"""User ORM model — local app profile linked to Firebase Auth."""
 
 from datetime import datetime
 from typing import Optional
@@ -16,7 +16,10 @@ class User(Base):
     email: Mapped[str] = mapped_column(
         String(255), unique=True, nullable=False, index=True
     )
-    password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    firebase_uid: Mapped[Optional[str]] = mapped_column(
+        String(128), unique=True, nullable=True, index=True
+    )
+    password_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     plan: Mapped[str] = mapped_column(
         String(20), default="free", server_default="free", nullable=False
