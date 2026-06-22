@@ -10,6 +10,8 @@ redis==5.1.0
 httpx==0.27.2
 feedparser==6.0.11
 trafilatura==1.12.2
+rank-bm25==0.2.2
+sentence-transformers==2.7.0
 # Gemini is called via httpx REST API directly; Firebase Auth uses Admin SDK.
 firebase-admin==6.5.0
 resend==2.4.0

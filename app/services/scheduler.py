@@ -18,7 +18,7 @@ from app.models.user import User
 from app.services.fetcher import fetch_articles
 from app.services.summariser import summarise_articles
 from app.services.mailer import send_digest_email
-from app.services.intent import build_intent_context, extract_all_keywords
+from app.services.intent import build_intent_context, build_semantic_query, extract_all_keywords
 from app.services.filters import FilterPipeline
 
 logger = structlog.get_logger()
@@ -78,7 +78,15 @@ async def run_pipeline(ctx: dict, briefing_id: int) -> dict:
             keywords=briefing.keywords,
             topic=briefing.topic,
             intent_description=briefing.intent_description,
+            example_articles=briefing.example_articles,
         )
+        semantic_query = build_semantic_query(
+            topic=briefing.topic,
+            intent_description=briefing.intent_description,
+            keywords=briefing.keywords,
+            example_articles=briefing.example_articles,
+        )
+        last_delivered_at = await _get_last_delivered_at(session, briefing.id)
 
         # ── Create digest record ──────────────────────────────────
         digest = Digest(briefing_id=briefing.id, status="processing")
@@ -98,9 +106,32 @@ async def run_pipeline(ctx: dict, briefing_id: int) -> dict:
             articles, fetch_ms = await fetch_articles(
                 sources=briefing.sources,
                 topic=briefing.topic,
+                since=last_delivered_at,
             )
 
             if not articles:
+                if last_delivered_at:
+                    session.add(PipelineEvent(
+                        digest_id=digest_id, stage="fetch", status="success",
+                        duration_ms=fetch_ms,
+                        error_msg="No new articles in window",
+                        item_count=0,
+                    ))
+                    session.add(PipelineEvent(
+                        digest_id=digest_id, stage="deliver", status="skipped",
+                        duration_ms=0,
+                        error_msg="No digest delivered because no new articles were fetched",
+                        item_count=0,
+                    ))
+                    digest.status = "skipped"
+                    await session.commit()
+                    log.info(
+                        "pipeline.no_new_articles",
+                        duration_ms=fetch_ms,
+                        since=last_delivered_at.isoformat(),
+                    )
+                    return {"status": "skipped", "reason": "No new articles in window"}
+
                 session.add(PipelineEvent(
                     digest_id=digest_id, stage="fetch", status="failed",
                     duration_ms=fetch_ms, error_msg="No articles fetched",
@@ -140,6 +171,7 @@ async def run_pipeline(ctx: dict, briefing_id: int) -> dict:
                 intent_context=intent_context,
                 keywords=all_keywords,
                 exclusion_keywords=briefing.exclusion_keywords,
+                semantic_query=semantic_query,
             )
             filtered_articles = await pipeline.run(articles)
             filter_ms = _now_ms() - filter_start_ms
@@ -155,6 +187,7 @@ async def run_pipeline(ctx: dict, briefing_id: int) -> dict:
                 input=len(articles),
                 output=len(filtered_articles),
                 duration_ms=filter_ms,
+                pre_llm_dropped=len(articles) - len(filtered_articles),
             )
 
             if not filtered_articles:
@@ -226,6 +259,11 @@ async def run_pipeline(ctx: dict, briefing_id: int) -> dict:
                 summary=article.get("summary", "[Summary unavailable]"),
                 fetch_duration_ms=fetch_ms,
                 published_at=article.get("published_at"),
+                updated_at=article.get("updated_at"),
+                date_source=article.get("date_source"),
+                date_confidence=article.get("date_confidence"),
+                date_resolution_status=article.get("date_resolution_status"),
+                date_candidates_json=article.get("date_candidates"),
                 heuristic_score=article.get("heuristic_score"),
                 llm_relevance_score=article.get("llm_relevance_score"),
                 llm_relevance_reason=article.get("llm_relevance_reason"),
@@ -339,6 +377,20 @@ async def _get_owner_email(session, user_id: int) -> str:
         select(User.email).where(User.id == user_id)
     )
     return result.scalar_one_or_none() or ""
+
+
+async def _get_last_delivered_at(session, briefing_id: int) -> Optional[datetime]:
+    result = await session.execute(
+        select(Digest.delivered_at)
+        .where(
+            Digest.briefing_id == briefing_id,
+            Digest.status == "delivered",
+            Digest.delivered_at.is_not(None),
+        )
+        .order_by(Digest.delivered_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 def _emails_match(left: Optional[str], right: Optional[str]) -> bool:
