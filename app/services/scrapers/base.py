@@ -20,6 +20,11 @@ class RawArticle:
     source_url: str
     raw_content: str
     published_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    date_source: str = "unknown"
+    date_confidence: str = "low"
+    date_resolution_status: str = "unresolved"
+    date_candidates: List[Dict] = field(default_factory=list)
     author: Optional[str] = None
     tags: List[str] = field(default_factory=list)
 
@@ -30,6 +35,11 @@ class RawArticle:
             "source_url": self.source_url,
             "raw_content": self.raw_content,
             "published_at": self.published_at,
+            "updated_at": self.updated_at,
+            "date_source": self.date_source,
+            "date_confidence": self.date_confidence,
+            "date_resolution_status": self.date_resolution_status,
+            "date_candidates": self.date_candidates,
             "author": self.author,
             "tags": self.tags,
         }
@@ -39,7 +49,6 @@ class BaseScraper(ABC):
     """Abstract base for all source scrapers."""
 
     # Subclasses can override these defaults
-    MAX_ARTICLES: int = 15
     CONTENT_MAX_CHARS: int = 4000
     FETCH_TIMEOUT: float = 15.0
 

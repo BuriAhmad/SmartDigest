@@ -104,8 +104,30 @@ class SemanticRetriever:
             logger.warning("semantic.dependency_missing", error=str(exc))
             return None
 
+        from app.config import get_settings
+
+        settings = get_settings()
+        kwargs = {}
+        if settings.SEMANTIC_MODEL_LOCAL_FILES_ONLY:
+            kwargs["local_files_only"] = True
+
         try:
-            model = await asyncio.to_thread(SentenceTransformer, self.model_name)
+            model = await asyncio.wait_for(
+                asyncio.to_thread(SentenceTransformer, self.model_name, **kwargs),
+                timeout=settings.SEMANTIC_MODEL_LOAD_TIMEOUT_SECONDS,
+            )
+        except TypeError as exc:
+            if settings.SEMANTIC_MODEL_LOCAL_FILES_ONLY:
+                logger.warning(
+                    "semantic.model_load_failed",
+                    model_name=self.model_name,
+                    error=str(exc),
+                )
+                return None
+            model = await asyncio.wait_for(
+                asyncio.to_thread(SentenceTransformer, self.model_name),
+                timeout=settings.SEMANTIC_MODEL_LOAD_TIMEOUT_SECONDS,
+            )
         except Exception as exc:
             logger.warning(
                 "semantic.model_load_failed",

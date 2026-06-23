@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}Settings — SmartDigest{% endblock %}
+
+{% block content %}
+<div class="header">
+  <div>
+    <h1>Settings</h1>
+    <p class="subtitle">Manage your SmartDigest account preferences.</p>
+  </div>
+</div>
+
+<div class="page-grid">
+  <div class="stack">
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Account</div>
+          <p class="panel-subtitle">Your account identity and subscription.</p>
+        </div>
+      </div>
+      <div class="stack">
+        <div style="display:flex;justify-content:space-between;gap:16px;align-items:center;border-bottom:1px solid var(--border);padding-bottom:14px;">
+          <div>
+            <div class="cell-muted">Email</div>
+            <div class="cell-title" style="margin-top:4px;overflow:hidden;text-overflow:ellipsis;">{{ user_email }}</div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:16px;align-items:center;">
+          <div>
+            <div class="cell-muted">Plan</div>
+            <div class="cell-title" style="margin-top:4px;">{{ usage.plan_label }}</div>
+          </div>
+          <a href="/app/billing" class="btn btn-outline btn-sm">Manage billing</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Digest preferences</div>
+          <p class="panel-subtitle">Defaults used when SmartDigest prepares your briefing emails.</p>
+        </div>
+      </div>
+      <div class="stack">
+        <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;border-bottom:1px solid var(--border);padding-bottom:14px;">
+          <div>
+            <div class="cell-muted">Delivery email</div>
+            <div class="cell-title" style="margin-top:4px;overflow:hidden;text-overflow:ellipsis;">{{ user_email }}</div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;border-bottom:1px solid var(--border);padding-bottom:14px;">
+          <div>
+            <div class="cell-muted">Timezone</div>
+            <div class="cell-title" id="settings-timezone" style="margin-top:4px;">Detecting...</div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:16px;align-items:center;">
+          <div>
+            <div class="cell-muted">Briefing schedules</div>
+            <p class="panel-subtitle" style="margin-top:4px;">Delivery time is configured per briefing.</p>
+          </div>
+          <a href="/app/briefings" class="btn btn-outline btn-sm">Manage briefings</a>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <aside class="stack">
+    <section class="panel">
+      <div class="panel-title">Usage</div>
+      <p class="panel-subtitle" style="margin-top:8px;">A quick view of your current SmartDigest activity.</p>
+      <div style="margin-top:14px;">
+        <div class="cell-muted">Briefings</div>
+        <div class="cell-title mono" style="margin-top:3px;">{{ usage.briefing_count }}</div>
+      </div>
+      <div style="margin-top:14px;">
+        <div class="cell-muted">Digest emails</div>
+        <div class="cell-title mono" style="margin-top:3px;">{{ usage.digest_count }}</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">Data</div>
+      <p class="panel-subtitle" style="margin-top:8px;">Manage your SmartDigest data and account lifecycle.</p>
+      <div class="stack" style="margin-top:14px;">
+        <button class="btn btn-outline btn-sm" disabled>Export digest history</button>
+        <button class="btn btn-ghost btn-sm btn-destructive-text" disabled>Delete account</button>
+      </div>
+    </section>
+  </aside>
+</div>
+{% endblock %}
+
+{% block head %}
+{{ super() }}
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    var tz = "UTC";
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch(e) {}
+    var timezone = document.getElementById("settings-timezone");
+    if (timezone) timezone.textContent = tz;
+});
+</script>
+{% endblock %}

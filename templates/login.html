@@ -178,7 +178,7 @@ async function exchangeFirebaseSession(firebaseUser, fallbackName) {
         throw new Error(data.detail || "Could not create session");
     }
 
-    window.location.replace("/");
+    window.location.replace("/app");
 }
 
 async function withButtonLoading(button, label, fn) {

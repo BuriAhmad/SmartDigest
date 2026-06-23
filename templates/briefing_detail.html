@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+
+{% block title %}{{ briefing.topic }} — SmartDigest{% endblock %}
+
+{% block content %}
+<a href="/app/briefings" class="back-link">&larr; Back to briefings</a>
+
+<div class="header" style="margin-bottom:20px;">
+  <div>
+    <h1>{{ briefing.topic }}</h1>
+    <div class="detail-meta">
+      <span><span class="cron-schedule" data-cron="{{ briefing.schedule }}">{{ briefing.schedule }}</span></span>
+      <span>{{ briefing.sources|length }} source{{ 's' if briefing.sources|length != 1 else '' }}</span>
+      <span>{{ digest_rows|length }} digest email{{ 's' if digest_rows|length != 1 else '' }}</span>
+    </div>
+  </div>
+  <div class="actions">
+    <a href="/app/briefings/{{ briefing.id }}/edit" class="btn btn-outline">Edit</a>
+    <button id="trigger-btn-{{ briefing.id }}" onclick="triggerPipeline('{{ briefing.id }}')" class="btn btn-primary">Run now</button>
+  </div>
+</div>
+
+<nav class="tabs" aria-label="Briefing sections">
+  <a class="tab {% if view == 'overview' %}active{% endif %}" href="/app/briefings/{{ briefing.id }}">Overview</a>
+  <a class="tab {% if view == 'latest' %}active{% endif %}" href="/app/briefings/{{ briefing.id }}?view=latest">Latest Email</a>
+  <a class="tab {% if view == 'articles' %}active{% endif %}" href="/app/briefings/{{ briefing.id }}?view=articles">All Articles</a>
+  <a class="tab {% if view == 'history' %}active{% endif %}" href="/app/briefings/{{ briefing.id }}?view=history">Run History</a>
+</nav>
+
+{% if view == 'overview' %}
+<div class="page-grid">
+  <div class="stack">
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Intent</div>
+          <p class="panel-subtitle">The context SmartDigest uses to filter and summarize.</p>
+        </div>
+      </div>
+      <p style="font-size:14px;line-height:1.6;color:var(--secondary-fg);">{{ briefing.intent_description or "No intent description saved." }}</p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title" style="margin-bottom:10px;">Relevance Rules</div>
+      {% if briefing.keywords %}
+      <div class="tags">
+        {% for kw in briefing.keywords %}
+        <span class="tag">{{ kw }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if briefing.exclusion_keywords %}
+      <div class="tags" style="margin-top:8px;">
+        {% for kw in briefing.exclusion_keywords %}
+        <span class="tag tag-exclude">{{ kw }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if not briefing.keywords and not briefing.exclusion_keywords %}
+      <p class="panel-subtitle">No keywords are configured.</p>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Sources</div>
+          <p class="panel-subtitle">Curated feeds used when this briefing runs.</p>
+        </div>
+      </div>
+      <div class="split-list">
+        {% for source in source_cards %}
+        <div class="source-pill">
+          <div class="name">{{ source.name }}</div>
+          <div class="meta">{{ source.category or source.url }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <aside class="stack">
+    <section class="panel">
+      <div class="panel-title">Latest Email</div>
+      {% if latest_digest %}
+        <div style="margin-top:12px;">
+          {% if latest_digest.status == "delivered" %}
+            <span class="badge badge-delivered">Delivered</span>
+          {% elif latest_digest.status == "processing" %}
+            <span class="badge badge-processing"><span class="dot"></span>Processing</span>
+          {% elif latest_digest.status == "failed" %}
+            <span class="badge badge-failed">Failed</span>
+          {% else %}
+            <span class="badge badge-queued">{{ latest_digest.status }}</span>
+          {% endif %}
+          <div class="cell-muted" style="margin-top:10px;">{{ latest_digest.item_count }} article{{ 's' if latest_digest.item_count != 1 else '' }}</div>
+          <div class="cell-muted digest-time" data-utc="{{ latest_digest.created_at.isoformat() if latest_digest.created_at else '' }}">{{ latest_digest.created_at.strftime('%b %d, %H:%M') if latest_digest.created_at else "—" }}</div>
+          <a href="/app/digests/{{ latest_digest.id }}" class="btn btn-outline btn-sm" style="margin-top:14px;">Open email</a>
+        </div>
+      {% else %}
+        <p class="panel-subtitle" style="margin-top:8px;">No digest emails generated yet.</p>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">Recent Runs</div>
+      <div class="stack" style="margin-top:12px;">
+        {% for run in digest_rows[:4] %}
+        <a href="/app/digests/{{ run.id }}" style="display:flex;justify-content:space-between;gap:12px;font-size:13px;">
+          <span class="cell-title">{{ run.status|capitalize }}</span>
+          <span class="cell-muted">{{ run.item_count }} article{{ 's' if run.item_count != 1 else '' }}</span>
+        </a>
+        {% else %}
+        <p class="panel-subtitle">Runs will appear here after the first trigger.</p>
+        {% endfor %}
+      </div>
+    </section>
+  </aside>
+</div>
+{% endif %}
+
+{% if view == 'latest' %}
+  {% if latest_digest %}
+    <div class="section-header">
+      <div>
+        <div class="section-label" style="margin-bottom:0">Latest Digest Email</div>
+        <p class="subtitle" style="margin-top:6px;">{{ latest_digest.item_count }} article{{ 's' if latest_digest.item_count != 1 else '' }} generated for {{ briefing.topic }}.</p>
+      </div>
+      <a href="/app/digests/{{ latest_digest.id }}" class="btn btn-outline btn-sm">Open email page</a>
+    </div>
+    {% if latest_items %}
+      {% for item in latest_items %}
+      {% include "partials/article_card.html" %}
+      {% endfor %}
+    {% else %}
+      <div class="empty-state">
+        <div class="title">No articles in the latest email</div>
+        <p class="copy">This run did not produce readable article items.</p>
+      </div>
+    {% endif %}
+  {% else %}
+    <div class="empty-state">
+      <div class="title">No latest email yet</div>
+      <p class="copy">Run this briefing to generate the first digest email.</p>
+    </div>
+  {% endif %}
+{% endif %}
+
+{% if view == 'articles' %}
+  <div class="section-header">
+    <div>
+      <div class="section-label" style="margin-bottom:0">All Articles</div>
+      <p class="subtitle" style="margin-top:6px;">Every article SmartDigest has produced for this briefing, across all runs.</p>
+    </div>
+  </div>
+  {% if all_articles %}
+    {% for item in all_articles %}
+    {% include "partials/article_card.html" %}
+    {% endfor %}
+  {% else %}
+    <div class="empty-state">
+      <div class="title">No articles yet</div>
+      <p class="copy">Articles will collect here after digest emails are generated.</p>
+    </div>
+  {% endif %}
+{% endif %}
+
+{% if view == 'history' %}
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Email</th>
+        <th>Status</th>
+        <th>Articles</th>
+        <th>Delivered</th>
+        <th style="text-align:right;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in digest_rows %}
+      <tr>
+        <td>
+          <div class="cell-title digest-time" data-utc="{{ run.created_at.isoformat() if run.created_at else '' }}">{{ run.created_at.strftime('%b %d, %H:%M') if run.created_at else "—" }}</div>
+        </td>
+        <td>
+          {% if run.status == "delivered" %}
+            <span class="badge badge-delivered">Delivered</span>
+          {% elif run.status == "processing" %}
+            <span class="badge badge-processing"><span class="dot"></span>Processing</span>
+          {% elif run.status == "failed" %}
+            <span class="badge badge-failed">Failed</span>
+          {% else %}
+            <span class="badge badge-queued">{{ run.status }}</span>
+          {% endif %}
+        </td>
+        <td>{{ run.item_count }}</td>
+        <td>
+          {% if run.delivered_at %}
+          <span class="digest-time" data-utc="{{ run.delivered_at.isoformat() }}">{{ run.delivered_at.strftime('%b %d, %H:%M') }}</span>
+          {% else %}
+          <span class="cell-muted">Not delivered</span>
+          {% endif %}
+        </td>
+        <td><div class="cell-actions"><a href="/app/digests/{{ run.id }}" class="btn btn-outline btn-sm">Open</a></div></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5"><span class="cell-muted">No runs yet.</span></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<script>
+async function triggerPipeline(briefingId) {
+    var btn = document.getElementById("trigger-btn-" + briefingId);
+    btn.textContent = "Queuing...";
+    btn.disabled = true;
+    try {
+        var resp = await fetch("/api/v1/briefings/" + briefingId + "/trigger", { method: "POST" });
+        if (resp.ok) {
+            var data = await resp.json();
+            showToast(data.message || "Run queued and visible in history.", "success");
+        } else if (resp.status === 429) {
+            showToast("Rate limit reached. Try again later.", "warning");
+        } else if (resp.status === 401) {
+            window.location.href = "/login";
+            return;
+        } else {
+            var errText = await resp.text();
+            var detail = "Failed to trigger";
+            try { detail = JSON.parse(errText).detail || detail; } catch(_) {}
+            showToast(detail, "error");
+        }
+    } catch(ex) {
+        showToast("Network error: " + ex.message, "error");
+    } finally {
+        btn.textContent = "Run now";
+        btn.disabled = false;
+    }
+}
+
+(function() {
+    try {
+        document.querySelectorAll(".digest-time").forEach(function(el) {
+            var utc = el.dataset.utc;
+            if (utc) {
+                var d = new Date(utc);
+                el.textContent = d.toLocaleDateString("en-US", {
+                    month: "short", day: "numeric", year: "numeric",
+                    hour: "numeric", minute: "2-digit", hour12: true
+                });
+            }
+        });
+    } catch(e) {}
+})();
+</script>
+{% endblock %}

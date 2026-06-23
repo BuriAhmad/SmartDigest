@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+
+{% block title %}SmartDigest — AI Briefings for Signal{% endblock %}
+
+{% block body %}
+<div class="public-shell" style="min-height:100vh;background:var(--bg);">
+  <header class="public-header" style="height:64px;border-bottom:1px solid var(--border);background:var(--sidebar-bg);">
+    <div class="public-header-inner" style="max-width:1152px;margin:0 auto;height:64px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;">
+      <a href="/" style="display:flex;align-items:center;gap:10px;font-weight:700;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        SmartDigest
+      </a>
+      <nav class="public-nav" style="display:flex;align-items:center;gap:18px;font-size:14px;color:var(--muted-fg);">
+        <a href="#features">Features</a>
+        <a href="#pricing">Pricing</a>
+        <a href="/login" class="btn btn-outline btn-sm">Log in</a>
+        <a href="/login?tab=signup" class="btn btn-primary btn-sm">Start free</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="public-hero" style="max-width:1152px;margin:0 auto;padding:64px 24px 40px;">
+      <div class="page-grid public-hero-grid" style="grid-template-columns:minmax(0,1fr) 460px;align-items:center;gap:40px;">
+        <div>
+          <div class="section-label">Built for depth, not another feed</div>
+          <h1 class="public-hero-title" style="font-size:44px;line-height:1.05;margin-bottom:18px;max-width:720px;">AI briefings for people who need signal.</h1>
+          <p class="public-hero-copy" style="font-size:16px;line-height:1.7;color:var(--secondary-fg);max-width:620px;margin-bottom:24px;">
+            SmartDigest turns curated sources into intent-aware digest emails. Describe what you want to learn, pick sources, and get summarized articles ranked by relevance to your actual goal.
+          </p>
+          <div class="public-hero-actions" style="display:flex;gap:12px;flex-wrap:wrap;">
+            <a href="/login?tab=signup" class="btn btn-primary">Start free</a>
+          </div>
+        </div>
+
+        <div id="example" class="panel" style="padding:0;overflow:hidden;">
+          <div style="padding:16px;border-bottom:1px solid var(--border);background:var(--sidebar-bg);">
+            <div class="panel-title">Example Digest Email</div>
+            <div class="panel-subtitle">AI Research · 8 articles · Daily 7:00 AM</div>
+          </div>
+          <div style="padding:16px;">
+            <div class="article" style="margin-bottom:10px;">
+              <div class="article-header">
+                <div>
+                  <div class="article-title">New open model improves agent evaluation</div>
+                  <div class="article-meta"><span>research.example</span><span>9/10 relevance</span></div>
+                </div>
+              </div>
+              <p class="article-summary">This matters because it gives your team a practical benchmark for judging tool-using agents before shipping them.</p>
+              <p class="article-reason">Matches your intent around production LLM evaluation.</p>
+            </div>
+            <div class="article" style="margin-bottom:0;">
+              <div class="article-header">
+                <div>
+                  <div class="article-title">A startup playbook for retrieval quality</div>
+                  <div class="article-meta"><span>engineering.example</span><span>8/10 relevance</span></div>
+                </div>
+              </div>
+              <p class="article-summary">The article explains where retrieval systems fail after launch and how to instrument review loops without slowing product teams.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" style="border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--sidebar-bg);">
+      <div class="public-section" style="max-width:1152px;margin:0 auto;padding:40px 24px;">
+        <div class="section-label">How it works</div>
+        <div class="grid-4" style="margin-bottom:0;">
+          <div class="metric-card"><div class="label">1</div><div class="cell-title">Describe intent</div><p class="panel-subtitle">Tell the system what you are trying to learn, not just a keyword.</p></div>
+          <div class="metric-card"><div class="label">2</div><div class="cell-title">Pick sources</div><p class="panel-subtitle">Choose from curated feeds with categories and tags.</p></div>
+          <div class="metric-card"><div class="label">3</div><div class="cell-title">Filter noise</div><p class="panel-subtitle">Heuristics and LLM scoring remove articles that do not fit.</p></div>
+          <div class="metric-card"><div class="label">4</div><div class="cell-title">Read the email</div><p class="panel-subtitle">Get a compact briefing with summaries, scores, and reasons.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="pricing" class="public-section" style="max-width:1152px;margin:0 auto;padding:44px 24px 64px;">
+      <div class="section-label">Pricing</div>
+      <div class="pricing-grid">
+        {% for plan in pricing_plans %}
+        <div class="pricing-card {% if plan.recommended %}recommended{% endif %}">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
+            <div>
+              <div class="panel-title">{{ plan.name }}</div>
+              <p class="panel-subtitle">{{ plan.summary }}</p>
+            </div>
+            {% if plan.recommended %}<span class="badge badge-delivered">Recommended</span>{% endif %}
+          </div>
+          <div style="margin:22px 0;">
+            <span class="value" style="font-size:34px;">{{ plan.price }}</span>
+            <span class="cell-muted">/{{ plan.interval }}</span>
+          </div>
+          <div class="subscription-checklist">
+            <div><span>✓</span><p>{{ plan.briefings }}</p></div>
+            <div><span>✓</span><p>{{ plan.digest_emails }}</p></div>
+            <div><span>✓</span><p>{{ plan.sources }} source selection</p></div>
+            <div><span>✓</span><p>{{ plan.manual_runs }} manual runs</p></div>
+            <div><span>✓</span><p>Briefing archive</p></div>
+          </div>
+          <a href="/login?tab=signup" class="btn {% if plan.recommended %}btn-primary{% else %}btn-outline{% endif %}" style="margin-top:20px;width:100%;justify-content:center;">{{ plan.cta }}</a>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+  </main>
+</div>
+{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+.public-shell {
+  overflow-x: hidden;
+}
+
+.public-hero-grid > * {
+  min-width: 0;
+}
+
+.subscription-checklist {
+  display: grid;
+  gap: 10px;
+}
+
+.subscription-checklist > div {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  color: var(--secondary-fg);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.subscription-checklist span {
+  color: var(--primary);
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.subscription-checklist strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.pricing-card {
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+
+.pricing-card.recommended {
+  border-color: hsl(172 66% 50% / 0.55);
+  box-shadow: 0 0 0 1px hsl(172 66% 50% / 0.08);
+}
+
+@media (max-width: 960px) {
+  .public-hero {
+    padding-top: 44px !important;
+  }
+
+  .public-hero-grid {
+    grid-template-columns: 1fr !important;
+    gap: 28px !important;
+    align-items: start !important;
+  }
+
+  .public-hero-title {
+    font-size: 36px !important;
+    line-height: 1.08 !important;
+    max-width: 620px !important;
+  }
+}
+
+@media (max-width: 520px) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  .public-header-inner {
+    padding: 0 16px !important;
+    max-width: 100vw !important;
+  }
+
+  .public-nav {
+    gap: 8px !important;
+  }
+
+  .public-nav a[href="#features"],
+  .public-nav a[href="#pricing"] {
+    display: none !important;
+  }
+
+  .public-hero,
+  .public-section {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+    max-width: 100vw !important;
+    width: 100% !important;
+  }
+
+  .public-hero-grid,
+  .public-hero-grid > div,
+  .public-hero-actions,
+  #example {
+    max-width: calc(100vw - 32px) !important;
+    width: calc(100vw - 32px) !important;
+  }
+
+  .public-hero {
+    padding-top: 36px !important;
+    padding-bottom: 32px !important;
+  }
+
+  .public-hero-title {
+    font-size: 31px !important;
+    line-height: 1.1 !important;
+    max-width: 100% !important;
+  }
+
+  .public-hero-copy {
+    font-size: 15px !important;
+    line-height: 1.65 !important;
+  }
+
+  .public-hero-actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .public-shell .panel,
+  .public-shell .pricing-card,
+  .public-shell .metric-card,
+  .public-shell .article {
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .pricing-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .public-shell .article {
+    padding: 16px !important;
+  }
+
+  .public-shell .article-title {
+    font-size: 15px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .public-shell p,
+  .public-shell h1 {
+    overflow-wrap: anywhere;
+  }
+}
+</style>
+{% if firebase_config %}
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
+
+var firebaseConfig = {{ firebase_config | tojson }};
+var firebaseReady = Boolean(firebaseConfig.apiKey && firebaseConfig.authDomain && firebaseConfig.projectId && firebaseConfig.appId);
+if (firebaseReady && new URLSearchParams(window.location.search).get("logged_out")) {
+    var firebaseApp = initializeApp(firebaseConfig);
+    var auth = getAuth(firebaseApp);
+    signOut(auth).catch(function() {}).finally(function() {
+        window.history.replaceState({}, document.title, "/");
+    });
+}
+</script>
+{% endif %}
+{% endblock %}

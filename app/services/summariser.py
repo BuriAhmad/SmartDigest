@@ -221,10 +221,7 @@ async def summarise_articles(
 
     # All models exhausted
     log.error("summariser.all_models_failed", last_error=last_error)
-    for article in articles:
-        if not article.get("summary"):
-            article["summary"] = f"[Summary unavailable — {last_error[:80]}]"
-    return articles
+    raise RuntimeError(f"Summarisation failed: {last_error}")
 
 
 def _parse_summaries(text: str, expected_count: int) -> Dict[int, dict]:

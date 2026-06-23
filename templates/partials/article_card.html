@@ -1,0 +1,41 @@
+<div class="article">
+  <div class="article-header">
+    <div>
+      <a href="{{ item.item_url or '#' }}" target="_blank" rel="noopener" class="article-title">{{ item.title or "Untitled" }}</a>
+      <div class="article-meta">
+        {% if item.source_url %}
+        <span>{{ item.source_url | replace('https://', '') | replace('http://', '') | truncate(30, True, '...') }}</span>
+        <span>·</span>
+        {% endif %}
+        {% if item.published_at %}
+        <span>{{ item.published_at.strftime('%b %d') }}</span>
+        <span>·</span>
+        {% endif %}
+        {% if item.fetch_duration_ms %}
+        <span class="mono">{{ item.fetch_duration_ms }}ms</span>
+        {% endif %}
+      </div>
+    </div>
+    {% if item.llm_relevance_score is not none %}
+    {% set score = item.llm_relevance_score %}
+    {% set pct = (score * 10) | int %}
+    {% set tier = 'high' if score >= 7 else ('mid' if score >= 4 else 'low') %}
+    <div class="score-bar">
+      <div class="score-track"><div class="score-fill {{ tier }}" style="width:{{ pct }}%"></div></div>
+      <span class="score-label">{{ score }}/10</span>
+    </div>
+    {% endif %}
+  </div>
+  {% if item.summary %}
+  <p class="article-summary">{{ item.summary }}</p>
+  {% endif %}
+  {% if item.llm_relevance_reason %}
+  <p class="article-reason">{{ item.llm_relevance_reason }}</p>
+  {% endif %}
+  {% if item.digest_id and item.digest_created_at %}
+  <div class="article-origin">
+    From <a href="/app/digests/{{ item.digest_id }}" class="view-all">digest email</a>
+    <span class="digest-time" data-utc="{{ item.digest_created_at.isoformat() }}">{{ item.digest_created_at.strftime('%b %d, %H:%M') }}</span>
+  </div>
+  {% endif %}
+</div>

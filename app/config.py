@@ -31,12 +31,17 @@ class Settings(BaseSettings):
     FIREBASE_WEB_APP_ID: str = "1:1001561444383:web:dccd126eb03ed93b53852a"
     FIREBASE_WEB_MEASUREMENT_ID: str = "G-DPBDKNSEQX"
     SEMANTIC_RETRIEVAL_ENABLED: bool = True
+    SEMANTIC_WARMUP_ENABLED: bool = False
+    SEMANTIC_MODEL_LOCAL_FILES_ONLY: bool = True
+    SEMANTIC_MODEL_LOAD_TIMEOUT_SECONDS: float = 5.0
     SEMANTIC_MODEL_NAME: str = "sentence-transformers/all-MiniLM-L6-v2"
     SEMANTIC_TOP_K: int = 20
     SEMANTIC_MIN_SCORE: float = 0.2
     SEMANTIC_QUERY_MAX_CHARS: int = 2000
     SEMANTIC_ARTICLE_MAX_CHARS: int = 1800
     RETRIEVAL_UNION_MAX_K: int = 30
+    ARQ_JOB_EXPIRES_SECONDS: int = 604800
+    QUEUED_DIGEST_RECOVERY_AFTER_MINUTES: int = 5
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

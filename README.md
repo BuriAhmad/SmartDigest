@@ -27,7 +27,7 @@ When you create a briefing, you don't just pick a topic — you describe your **
 | Stage | What happens |
 |---|---|
 | 🔍 **Fetch** | Concurrent async scraping across RSS feeds + a purpose-built Hacker News scraper that fetches full article text (not just headlines) |
-| 🧹 **Heuristic Filter** | Keyword-weighted scoring instantly drops clearly irrelevant articles before spending any AI quota |
+| 🧹 **BM25 Lexical Filter** | Keyword-aware ranking drops clearly irrelevant articles before spending any AI quota |
 | 🤖 **LLM Relevance Filter** | Gemini scores each remaining article 1–10 against your stated intent. Articles below the threshold are excluded. |
 | ✍️ **Intent-Aware Summary** | The surviving articles are summarised in a single batched Gemini call — but not generically. The prompt instructs the model to act as *your knowledgeable advisor*, extracting what matters and explaining why. |
 | 📧 **Delivery** | A clean HTML digest lands in your inbox via Resend |
@@ -50,7 +50,7 @@ Browser / API Client
              ▼                                 │      ARQ Worker             │
 ┌─────────────────────┐                        │  ┌─────────────────────┐   │
 │    PostgreSQL 16     │ ◄──────────────────── │  │  1. Fetch (async)   │   │
-│  SQLAlchemy 2 async  │                        │  │  2. Heuristic Filter│   │
+│  SQLAlchemy 2 async  │                        │  │  2. BM25 Filter     │   │
 └─────────────────────┘                        │  │  3. LLM Filter      │   │
                                                │  │  4. AI Summarise    │   │
                                                │  │  5. Email Deliver   │   │
@@ -72,19 +72,20 @@ The web server and background worker are **fully decoupled** — they share only
 
 ### ⚡ Production-Grade Pipeline
 - Concurrent feed fetching with per-source scraper dispatch
+- Fetches source articles newer than the last delivered digest before ranking
 - **Purpose-built Hacker News scraper** — fetches full linked article text via `trafilatura`, not just RSS headlines
-- Two-stage filtering: fast heuristic pre-filter → LLM relevance scoring
+- Two-stage filtering: fast BM25 lexical pre-filter → LLM relevance scoring
 - Single-batch Gemini summarisation (one API call per digest regardless of article count)
 - **Model fallback chain**: `gemini-2.0-flash` → `gemini-2.5-flash` → lite variants — maximises uptime on free-tier quotas
 
 ### 🔐 Secure Authentication
-- Firebase Auth for Email/Password and Google sign-in
-- Backend-verified Firebase ID tokens exchanged for JWT sessions in `httpOnly` cookies (`SameSite=Lax`)
+- Email + password accounts with `bcrypt` password hashing
+- JWT sessions in `httpOnly` cookies (`SameSite=Lax`)
 - **Three-layer bfcache defence** — authenticated pages are never stored in browser history
 - 3-day rolling sessions; `Cache-Control: no-store` on all protected HTML
 
 ### 📊 Full Observability
-- Every pipeline stage (`fetch` / `heuristic` / `llm_filter` / `summarise` / `deliver`) logged to `pipeline_events`
+- Every pipeline stage (`fetch` / `filter` / `summarise` / `deliver`) logged to `pipeline_events`
 - Live metrics panel on dashboard: 24h job counts, per-stage latency, last error — HTMX-polled every 5s
 - `/api/v1/metrics/pipeline` endpoint backed by real SQL aggregates
 - Structured JSON logging via `structlog` in production, pretty console in development
@@ -128,7 +129,7 @@ The web server and background worker are **fully decoupled** — they share only
 | Rate limiting | **slowapi** | Redis-backed per-user limits |
 | Structured logging | **structlog** | JSON in prod, pretty console in dev |
 | Configuration | **Pydantic Settings** | Env-file + OS env, validated at startup |
-| Auth | **Firebase Auth + PyJWT** | Firebase ID tokens exchanged for signed httpOnly cookie sessions |
+| Auth | **PyJWT + bcrypt** | Signed httpOnly cookie sessions |
 | Deployment | **Railway** | Two-service split: web + worker |
 
 ---
@@ -136,7 +137,7 @@ The web server and background worker are **fully decoupled** — they share only
 ## 📐 Database Schema
 
 ```
-users             — email, firebase_uid, name, plan (free/pro), last_login_at
+users             — email, bcrypt hash, name, plan (free/pro), last_login_at
 curated_sources   — pre-approved RSS feeds (seeded via CLI); name, rss_url, active
 briefings         — user's configured feed: topic, intent_description, keywords[],
                     example_articles[], exclusion_keywords[], sources[], schedule, email
@@ -189,7 +190,6 @@ GEMINI_API_KEY=your_key_here
 RESEND_API_KEY=your_key_here          # Omit entirely for dev mode (emails logged to console)
 RESEND_FROM_EMAIL=onboarding@resend.dev
 JWT_SECRET=generate-a-random-secret-here
-FIREBASE_SERVICE_ACCOUNT_PATH=~/.config/smartdigest/firebase/firebase-admin-service-account.json
 ENV=development
 ```
 
@@ -200,7 +200,13 @@ alembic upgrade head
 python -m app.cli seed_sources
 ```
 
-### 5. Run both services
+### 5. Create your account
+
+```bash
+python -m app.cli create_user you@example.com yourpassword "Your Name"
+```
+
+### 6. Run both services
 
 ```bash
 # Terminal 1 — Web server
@@ -257,7 +263,8 @@ Authentication uses httpOnly JWT session cookies set at login. All API endpoints
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
-| `POST` | `/auth/firebase/session` | ✗ | Exchange a Firebase ID token for the `sd_session` cookie |
+| `POST` | `/auth/register` | ✗ | Create a new account |
+| `POST` | `/auth/login` | ✗ | Log in — sets `sd_session` cookie |
 | `POST` | `/auth/logout` | ✓ | Log out — clears cookie |
 | `GET` | `/api/v1/sources` | ✗ | List all curated RSS sources |
 | `POST` | `/api/v1/briefings` | ✓ | Create a briefing |
@@ -281,7 +288,7 @@ Interactive API explorer: **[/docs](https://smartdigest-production.up.railway.ap
 SmartDigest/
 ├── app/
 │   ├── api/
-│   │   ├── auth.py          # Firebase session exchange + logout
+│   │   ├── auth.py          # Register, login, logout
 │   │   ├── briefings.py     # Full CRUD + trigger endpoint
 │   │   ├── digests.py       # Digest list + detail
 │   │   ├── jobs.py          # ARQ job status polling
@@ -303,7 +310,7 @@ SmartDigest/
 │   ├── schemas/             # Pydantic request/response models
 │   │
 │   ├── services/
-│   │   ├── auth.py          # Firebase verification + JWT session helpers
+│   │   ├── auth.py          # bcrypt hashing + JWT creation/verification
 │   │   ├── fetcher.py       # Concurrent multi-source article fetching
 │   │   ├── intent.py        # Intent context builder
 │   │   ├── mailer.py        # Resend email delivery
@@ -312,7 +319,8 @@ SmartDigest/
 │   │   ├── summariser.py    # Gemini batch summarisation + model fallback
 │   │   │
 │   │   ├── filters/
-│   │   │   ├── heuristic.py     # Keyword-weighted pre-filter
+│   │   │   ├── bm25.py          # BM25 lexical pre-filter
+│   │   │   ├── heuristic.py     # Legacy keyword-weighted pre-filter
 │   │   │   └── llm_relevance.py # Gemini 1–10 relevance scoring
 │   │   │
 │   │   └── scrapers/
@@ -358,7 +366,10 @@ SmartDigest/
 Most digest tools summarise articles generically. SmartDigest passes the user's `intent_description`, `keywords`, and `example_articles` to both the LLM filter and the summariser. The model is prompted to act as a *knowledgeable advisor*, not a compression algorithm.
 
 **Two-stage filtering minimises cost without sacrificing quality**  
-The heuristic filter (regex keyword scoring) runs first for free. Only articles passing that threshold are scored by the LLM. This keeps Gemini API usage proportional to actual relevance, not feed volume.
+The BM25 lexical filter runs first for free, with hard exclusion keywords applied before ranking. Only the strongest lexical candidates are scored by the LLM. This keeps Gemini API usage proportional to likely relevance, not feed volume.
+
+**Coverage-first retrieval**
+Fetch uses the last delivered digest timestamp as its lower bound and avoids global pre-ranking caps. BM25 then ranks the full time-window candidate set generously, so the LLM is reserved for final intent-aware precision instead of compensating for missed fetch coverage.
 
 **Direct REST over SDK (Gemini)**  
 Calling the Gemini REST API directly via `httpx` removes SDK release-cycle dependency, and `httpx.AsyncClient` integrates naturally into FastAPI's async event loop without thread pool overhead.
@@ -373,7 +384,7 @@ Free-tier Gemini quotas are per-model, not shared. The summariser tries `gemini-
 The web server never waits on pipeline work. A trigger enqueues a job to Redis and returns `202 Accepted` in milliseconds. The worker picks it up asynchronously. Both services share only the queue and the database — they can be scaled, restarted, or redeployed independently.
 
 **Cookie-based JWT auth**  
-SmartDigest is browser-first (Jinja2 + HTMX), so Firebase sign-in is exchanged for an app-owned `httpOnly` cookie. That keeps protected routes server-side, avoids storing auth tokens in JavaScript, and lets `SameSite=Lax` protect normal navigations.
+SmartDigest is browser-first (Jinja2 + HTMX), so `httpOnly` cookies are the natural auth mechanism. They're sent automatically on every request without any JavaScript, and `SameSite=Lax` protects against CSRF on navigations.
 
 **Purpose-built HN scraper**  
 Hacker News RSS feeds contain only titles and links. The dedicated `HackerNewsScraper` fetches each linked article and extracts full body text using `trafilatura`, dramatically improving summarisation quality for HN sources.

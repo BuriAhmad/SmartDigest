@@ -121,6 +121,7 @@ h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 
 .status-bar { display: flex; height: 16px; border-radius: 999px; overflow: hidden; background: var(--secondary); }
 .status-bar .seg-done { background: var(--success); }
 .status-bar .seg-failed { background: var(--destructive); }
+.status-bar .seg-skipped { background: var(--info); }
 .status-bar .seg-queued { background: var(--info); }
 .status-bar .seg-in_progress { background: var(--warning); }
 .status-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; font-size: 14px; }
@@ -149,6 +150,40 @@ h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 
 .view-all:hover { text-decoration: underline; }
 
 .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+
+.stack { display: flex; flex-direction: column; gap: 16px; }
+.page-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
+.panel { border: 1px solid var(--border); background: var(--card); border-radius: var(--radius); padding: 18px; }
+.panel-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
+.panel-title { font-size: 14px; font-weight: 700; color: var(--fg); }
+.panel-subtitle { font-size: 12px; line-height: 1.5; color: var(--muted-fg); }
+.table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+.data-table { width: 100%; border-collapse: collapse; min-width: 760px; }
+.data-table th { padding: 11px 14px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted-fg); border-bottom: 1px solid var(--border); }
+.data-table td { padding: 14px; border-bottom: 1px solid var(--border); vertical-align: top; font-size: 14px; }
+.data-table tbody tr:last-child td { border-bottom: 0; }
+.data-table tbody tr:hover { background: hsl(220 16% 11%); }
+.cell-title { font-size: 14px; font-weight: 600; color: var(--fg); }
+a.cell-title:hover { color: var(--primary); }
+.cell-muted { margin-top: 4px; font-size: 12px; line-height: 1.45; color: var(--muted-fg); }
+.cell-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.empty-state { border: 1px dashed var(--border); background: hsl(220 18% 8%); border-radius: var(--radius); padding: 36px 20px; text-align: center; }
+.empty-state .title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.empty-state .copy { font-size: 13px; color: var(--muted-fg); }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+.tab { padding: 10px 12px; border-bottom: 2px solid transparent; color: var(--muted-fg); font-size: 13px; font-weight: 600; }
+.tab:hover, .tab.active { color: var(--fg); border-bottom-color: var(--primary); }
+.detail-meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; font-size: 12px; color: var(--muted-fg); }
+.split-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.source-pill { border: 1px solid var(--border); background: var(--bg); border-radius: var(--radius); padding: 10px; min-width: 0; }
+.source-pill .name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.source-pill .meta { margin-top: 3px; font-size: 11px; color: var(--muted-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.archive-group { margin-bottom: 24px; }
+.archive-group-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+.archive-group-title { font-size: 16px; font-weight: 700; }
+.archive-group-title:hover { color: var(--primary); }
+.archive-group-meta { margin-top: 4px; font-size: 12px; color: var(--muted-fg); }
+.article-origin { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--muted-fg); }
 
 /* ── Drawer (right-side slide-in panel) ── */
 .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 50; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
@@ -252,6 +287,10 @@ select.form-input { appearance: auto; }
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
   .grid-cards { grid-template-columns: 1fr; }
   .grid-3 { grid-template-columns: 1fr; }
+  .page-grid { grid-template-columns: 1fr !important; }
+  .split-list { grid-template-columns: 1fr; }
+  .archive-group-header { align-items: flex-start; flex-direction: column; }
+  .cell-actions { justify-content: flex-start; }
   .content { padding: 16px 16px 96px; }
   .header { flex-direction: column; align-items: flex-start; gap: 12px; }
   .header .btn { align-self: stretch; justify-content: center; }
@@ -299,17 +338,25 @@ select.form-input { appearance: auto; }
     <span>SmartDigest</span>
   </div>
   <nav class="sidebar-nav">
-    <a href="/" class="{% if active_page == 'dashboard' %}active{% endif %}">
+    <a href="/app" class="{% if active_page == 'dashboard' %}active{% endif %}">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
       Dashboard
     </a>
-    <a href="/digests" class="{% if active_page == 'digests' %}active{% endif %}">
+    <a href="/app/briefings" class="{% if active_page == 'briefings' %}active{% endif %}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+      Briefings
+    </a>
+    <a href="/app/digests" class="{% if active_page == 'digests' %}active{% endif %}">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
       Digests
     </a>
     <a href="/metrics" class="{% if active_page == 'metrics' %}active{% endif %}">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
       Metrics
+    </a>
+    <a href="/app/settings" class="{% if active_page == 'settings' %}active{% endif %}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="m4.93 4.93 2.12 2.12"/><path d="m16.95 16.95 2.12 2.12"/><path d="M2 12h3"/><path d="M19 12h3"/><path d="m4.93 19.07 2.12-2.12"/><path d="m16.95 7.05 2.12-2.12"/></svg>
+      Settings
     </a>
   </nav>
   <div class="sidebar-footer">
@@ -332,11 +379,15 @@ select.form-input { appearance: auto; }
 
 <!-- Mobile bottom navigation -->
 <nav class="mobile-nav" aria-label="Mobile navigation">
-  <a href="/" class="{% if active_page == 'dashboard' %}active{% endif %}">
+  <a href="/app" class="{% if active_page == 'dashboard' %}active{% endif %}">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
     Dashboard
   </a>
-  <a href="/digests" class="{% if active_page == 'digests' %}active{% endif %}">
+  <a href="/app/briefings" class="{% if active_page == 'briefings' %}active{% endif %}">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+    Briefings
+  </a>
+  <a href="/app/digests" class="{% if active_page == 'digests' %}active{% endif %}">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
     Digests
   </a>

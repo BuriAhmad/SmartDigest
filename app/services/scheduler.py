@@ -5,10 +5,12 @@ Also exports enqueue_scheduled_digests for the ARQ cron job.
 """
 
 import structlog
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import func, select
+from arq.connections import create_pool, RedisSettings
+from app.config import get_settings
 from app.database import async_session
 from app.models.briefing import Briefing
 from app.models.digest import Digest
@@ -26,7 +28,7 @@ logger = structlog.get_logger()
 _PIPELINE_LOCK_NAMESPACE = 0x5D16E57
 
 
-async def run_pipeline(ctx: dict, briefing_id: int) -> dict:
+async def run_pipeline(ctx: dict, briefing_id: int, digest_id: Optional[int] = None) -> dict:
     """Full pipeline job: fetch → filter → summarise → deliver.
 
     Creates digest + digest_items, sends email with AI-generated summaries.
@@ -43,11 +45,23 @@ async def run_pipeline(ctx: dict, briefing_id: int) -> dict:
         briefing = result.scalar_one_or_none()
 
         if briefing is None or not briefing.active:
+            await _mark_digest_not_started(
+                session,
+                digest_id,
+                "failed",
+                "Briefing not found or inactive",
+            )
             log.warning("pipeline.briefing_not_found")
             return {"status": "failed", "error": "Briefing not found or inactive"}
 
         owner_email = await _get_owner_email(session, briefing.user_id)
         if not _emails_match(briefing.email, owner_email):
+            await _mark_digest_not_started(
+                session,
+                digest_id,
+                "failed",
+                "Delivery email does not match briefing owner",
+            )
             log.warning(
                 "pipeline.delivery_email_mismatch",
                 delivery_email=briefing.email,
@@ -58,8 +72,27 @@ async def run_pipeline(ctx: dict, briefing_id: int) -> dict:
                 "error": "Delivery email does not match briefing owner",
             }
 
+        digest = await _get_digest_for_run(session, briefing.id, digest_id)
+        if digest is not None and digest.status != "queued":
+            log.info(
+                "pipeline.digest_already_terminal",
+                digest_id=digest.id,
+                status=digest.status,
+            )
+            return {
+                "status": digest.status,
+                "digest_id": digest.id,
+                "reason": "Digest was already processed",
+            }
+
         lock_acquired = await _try_lock_briefing_pipeline(session, briefing.id)
         if not lock_acquired:
+            await _mark_digest_not_started(
+                session,
+                digest_id,
+                "skipped",
+                "A pipeline run is already active for this briefing",
+            )
             log.warning("pipeline.duplicate_run_skipped")
             return {
                 "status": "skipped",
@@ -88,11 +121,15 @@ async def run_pipeline(ctx: dict, briefing_id: int) -> dict:
         )
         last_delivered_at = await _get_last_delivered_at(session, briefing.id)
 
-        # ── Create digest record ──────────────────────────────────
-        digest = Digest(briefing_id=briefing.id, status="processing")
-        session.add(digest)
-        await session.flush()
-        await session.refresh(digest)
+        # ── Create or claim digest record ─────────────────────────
+        if digest is None:
+            digest = Digest(briefing_id=briefing.id, status="processing")
+            session.add(digest)
+            await session.flush()
+            await session.refresh(digest)
+        else:
+            digest.status = "processing"
+            await session.flush()
         digest_id = digest.id
         log = log.bind(digest_id=digest_id)
 
@@ -208,10 +245,10 @@ async def run_pipeline(ctx: dict, briefing_id: int) -> dict:
                 digest_id=digest_id, stage="filter", status="failed",
                 duration_ms=filter_ms, error_msg=str(exc),
             ))
-            await session.flush()
+            digest.status = "failed"
+            await session.commit()
             log.error("pipeline.filter_error", error=str(exc))
-            # Continue with unfiltered articles
-            filtered_articles = articles
+            return {"status": "failed", "error": str(exc), "digest_id": digest_id}
 
         # ── STAGE 3: SUMMARISE ────────────────────────────────────
         session.add(PipelineEvent(
@@ -241,12 +278,28 @@ async def run_pipeline(ctx: dict, briefing_id: int) -> dict:
                 digest_id=digest_id, stage="summarise", status="failed",
                 duration_ms=summarise_ms, error_msg=str(exc),
             ))
-            await session.flush()
+            digest.status = "failed"
+            await session.commit()
             log.error("pipeline.summarise_error", error=str(exc))
-            summarised_articles = filtered_articles
-            for article in summarised_articles:
-                if not article.get("summary"):
-                    article["summary"] = "[Summary unavailable]"
+            return {"status": "failed", "error": str(exc), "digest_id": digest_id}
+
+        if not summarised_articles:
+            session.add(PipelineEvent(
+                digest_id=digest_id,
+                stage="deliver",
+                status="skipped",
+                duration_ms=0,
+                error_msg="No digest delivered because summarisation excluded every article",
+                item_count=0,
+            ))
+            digest.status = "skipped"
+            await session.commit()
+            log.info("pipeline.no_summarised_articles")
+            return {
+                "status": "skipped",
+                "reason": "No articles remained after summarisation",
+                "digest_id": digest_id,
+            }
 
         # ── SAVE DIGEST ITEMS ─────────────────────────────────────
         for article in summarised_articles:
@@ -323,15 +376,16 @@ async def enqueue_scheduled_digests(ctx: dict) -> dict:
     """ARQ cron job — enqueues pipelines for all active briefings.
 
     Only enqueues briefings whose delivery email belongs to their owning user
-    and whose daily cron schedule matches the current UTC minute.
+    and whose daily cron schedule is due. If the worker was offline at the exact
+    scheduled minute, this catches up the most recent missed daily slot.
     """
-    from arq.connections import create_pool, RedisSettings
-    from app.config import get_settings
-
     log = logger.bind(job="enqueue_scheduled_digests")
     log.info("cron.checking_briefings")
 
     settings = get_settings()
+    now = ctx.get("now") if isinstance(ctx, dict) else None
+    if not isinstance(now, datetime):
+        now = datetime.now(timezone.utc)
 
     async with async_session() as session:
         result = await session.execute(
@@ -344,32 +398,127 @@ async def enqueue_scheduled_digests(ctx: dict) -> dict:
         )
         briefings = result.scalars().all()
 
+        due_runs = []
+        for briefing in briefings:
+            scheduled_at = _latest_scheduled_occurrence(briefing.schedule, now)
+            if scheduled_at is None:
+                continue
+            if _is_before_briefing_creation(scheduled_at, briefing):
+                continue
+
+            already_queued = await _digest_exists_since(
+                session,
+                briefing.id,
+                scheduled_at,
+            )
+            if already_queued:
+                continue
+
+            digest = Digest(briefing_id=briefing.id, status="queued")
+            session.add(digest)
+            await session.flush()
+            await session.refresh(digest)
+            await session.commit()
+            due_runs.append((briefing, digest, scheduled_at))
+
     if not briefings:
         log.info("cron.no_active_briefings")
-        return {"enqueued": 0}
+        return {"enqueued": 0, "queued": 0}
 
-    now = datetime.now(timezone.utc)
-    due_briefings = [
-        briefing for briefing in briefings
-        if _schedule_is_due(briefing.schedule, now)
-    ]
-
-    if not due_briefings:
+    if not due_runs:
         log.info("cron.no_due_briefings", checked=len(briefings))
-        return {"enqueued": 0}
+        return {"enqueued": 0, "queued": 0}
 
     redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
     enqueued = 0
-    for briefing in due_briefings:
-        try:
-            await redis.enqueue_job("run_pipeline", briefing.id)
-            enqueued += 1
-        except Exception as exc:
-            log.error("cron.enqueue_failed", briefing_id=briefing.id, error=str(exc))
-    await redis.close()
+    try:
+        for briefing, digest, scheduled_at in due_runs:
+            try:
+                job = await redis.enqueue_job(
+                    "run_pipeline",
+                    briefing.id,
+                    digest.id,
+                    _job_id=f"digest:{digest.id}",
+                    _expires=timedelta(seconds=settings.ARQ_JOB_EXPIRES_SECONDS),
+                )
+                if job is not None:
+                    enqueued += 1
+                    log.info(
+                        "cron.enqueued_digest",
+                        briefing_id=briefing.id,
+                        digest_id=digest.id,
+                        scheduled_at=scheduled_at.isoformat(),
+                    )
+            except Exception as exc:
+                log.error(
+                    "cron.enqueue_failed",
+                    briefing_id=briefing.id,
+                    digest_id=digest.id,
+                    error=str(exc),
+                )
+    finally:
+        await redis.close()
 
-    log.info("cron.enqueued", count=enqueued)
-    return {"enqueued": enqueued}
+    log.info("cron.enqueued", count=enqueued, queued=len(due_runs))
+    return {"enqueued": enqueued, "queued": len(due_runs)}
+
+
+async def recover_queued_digests(ctx: dict) -> dict:
+    """Re-enqueue manual runs that are still queued after a short grace period."""
+    settings = get_settings()
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        minutes=settings.QUEUED_DIGEST_RECOVERY_AFTER_MINUTES
+    )
+    log = logger.bind(job="recover_queued_digests", cutoff=cutoff.isoformat())
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(Digest, Briefing)
+            .join(Briefing, Briefing.id == Digest.briefing_id)
+            .where(
+                Digest.status == "queued",
+                Digest.created_at < cutoff,
+                Briefing.active.is_(True),
+            )
+            .order_by(Digest.created_at.asc())
+            .limit(50)
+        )
+        queued_runs = result.all()
+
+    if not queued_runs:
+        log.info("queue_recovery.none")
+        return {"requeued": 0}
+
+    redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+    requeued = 0
+    try:
+        for digest, briefing in queued_runs:
+            try:
+                job = await redis.enqueue_job(
+                    "run_pipeline",
+                    briefing.id,
+                    digest.id,
+                    _job_id=f"digest:{digest.id}",
+                    _expires=timedelta(seconds=settings.ARQ_JOB_EXPIRES_SECONDS),
+                )
+                if job is not None:
+                    requeued += 1
+                    log.info(
+                        "queue_recovery.requeued",
+                        briefing_id=briefing.id,
+                        digest_id=digest.id,
+                    )
+            except Exception as exc:
+                log.error(
+                    "queue_recovery.enqueue_failed",
+                    briefing_id=briefing.id,
+                    digest_id=digest.id,
+                    error=str(exc),
+                )
+    finally:
+        await redis.close()
+
+    return {"requeued": requeued}
 
 
 async def _get_owner_email(session, user_id: int) -> str:
@@ -391,6 +540,64 @@ async def _get_last_delivered_at(session, briefing_id: int) -> Optional[datetime
         .limit(1)
     )
     return result.scalar_one_or_none()
+
+
+async def _digest_exists_since(
+    session,
+    briefing_id: int,
+    since: datetime,
+) -> bool:
+    result = await session.execute(
+        select(Digest.id)
+        .where(
+            Digest.briefing_id == briefing_id,
+            Digest.created_at >= since,
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def _get_digest_for_run(
+    session,
+    briefing_id: int,
+    digest_id: Optional[int],
+) -> Optional[Digest]:
+    if digest_id is None:
+        return None
+
+    result = await session.execute(
+        select(Digest).where(
+            Digest.id == digest_id,
+            Digest.briefing_id == briefing_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def _mark_digest_not_started(
+    session,
+    digest_id: Optional[int],
+    status: str,
+    reason: str,
+) -> None:
+    if digest_id is None:
+        return
+
+    result = await session.execute(select(Digest).where(Digest.id == digest_id))
+    digest = result.scalar_one_or_none()
+    if digest is None or digest.status != "queued":
+        return
+
+    digest.status = status
+    session.add(PipelineEvent(
+        digest_id=digest.id,
+        stage="queue",
+        status=status,
+        error_msg=reason,
+        item_count=0,
+    ))
+    await session.commit()
 
 
 def _emails_match(left: Optional[str], right: Optional[str]) -> bool:
@@ -420,6 +627,45 @@ def _schedule_is_due(schedule: Optional[str], now: datetime) -> bool:
         return False
 
     return now.hour == hour and now.minute == minute
+
+
+def _latest_scheduled_occurrence(
+    schedule: Optional[str],
+    now: datetime,
+) -> Optional[datetime]:
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    else:
+        now = now.astimezone(timezone.utc)
+
+    parts = (schedule or "").strip().split()
+    if len(parts) != 5 or parts[2:] != ["*", "*", "*"]:
+        return None
+
+    try:
+        minute = int(parts[0])
+        hour = int(parts[1])
+    except ValueError:
+        return None
+
+    if hour < 0 or hour > 23 or minute not in {0, 30}:
+        return None
+
+    scheduled = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if scheduled > now:
+        scheduled -= timedelta(days=1)
+    return scheduled
+
+
+def _is_before_briefing_creation(scheduled_at: datetime, briefing: Briefing) -> bool:
+    created_at = getattr(briefing, "created_at", None)
+    if created_at is None:
+        return False
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    else:
+        created_at = created_at.astimezone(timezone.utc)
+    return scheduled_at < created_at
 
 
 def _build_digest_email(

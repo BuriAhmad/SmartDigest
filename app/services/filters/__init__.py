@@ -101,8 +101,7 @@ class FilterPipeline:
             )
         except Exception as exc:
             log.error("filter.llm_failed", error=str(exc))
-            # If LLM scoring fails, pass through retrieval results
-            llm_passed = retrieval_passed
+            raise
 
         log.info(
             "filter.pipeline_complete",

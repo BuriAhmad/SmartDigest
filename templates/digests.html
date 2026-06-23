@@ -1,22 +1,38 @@
 {% extends "base.html" %}
 
-{% block title %}Digests — SmartDigest{% endblock %}
+{% block title %}Archive — SmartDigest{% endblock %}
 
 {% block content %}
 <div style="margin-bottom:32px">
-  <h1>Digests</h1>
-  <p class="subtitle">Browse your generated content digests</p>
+  <h1>Archive</h1>
+  <p class="subtitle">Every generated digest email, grouped by the briefing it belongs to.</p>
 </div>
 
-{% if digests %}
-  {% for d in digests %}
-    {% include "partials/digest_row.html" %}
+{% if groups %}
+  {% for group in groups %}
+  <section class="archive-group">
+    <div class="archive-group-header">
+      <div>
+        <a href="/app/briefings/{{ group.briefing_id }}" class="archive-group-title">{{ group.topic or "Untitled briefing" }}</a>
+        <div class="archive-group-meta">
+          {{ group.digest_count }} email{{ 's' if group.digest_count != 1 else '' }} ·
+          {{ group.article_count }} article{{ 's' if group.article_count != 1 else '' }}
+        </div>
+      </div>
+      <a href="/app/briefings/{{ group.briefing_id }}" class="btn btn-outline btn-sm">Open briefing</a>
+    </div>
+    <div>
+      {% for d in group.digests %}
+        {% set row_context = 'archive' %}
+        {% include "partials/digest_row.html" %}
+      {% endfor %}
+    </div>
+  </section>
   {% endfor %}
 {% else %}
-  <div class="card" style="text-align:center;padding:48px 16px;">
-    <div style="font-size:32px;margin-bottom:12px;">📄</div>
-    <p style="color:var(--muted-fg);margin-bottom:4px;">No digests yet.</p>
-    <p style="font-size:12px;color:var(--muted-fg);">Once you trigger a pipeline run, your digests will appear here.</p>
+  <div class="empty-state">
+    <div class="title">No digest emails yet</div>
+    <p class="copy">Run a briefing to generate the first archived email.</p>
   </div>
 {% endif %}
 {% endblock %}

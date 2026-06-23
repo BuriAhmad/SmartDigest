@@ -40,7 +40,7 @@
 <!-- Recent digests -->
 <div class="section-header">
   <div class="section-label" style="margin-bottom:0">Recent Digests</div>
-  <a href="/digests" class="view-all">View all</a>
+  <a href="/app/digests" class="view-all">View all</a>
 </div>
 {% if digests %}
   {% for d in digests %}
@@ -421,7 +421,8 @@ async function triggerPipeline(briefingId) {
     try {
         var resp = await fetch("/api/v1/briefings/" + briefingId + "/trigger", { method: "POST" });
         if (resp.ok) {
-            showToast("Pipeline queued successfully!", "success");
+            var data = await resp.json();
+            showToast(data.message || "Run queued and visible in history.", "success");
         } else if (resp.status === 429) {
             showToast("Rate limit reached. Try again later.", "warning");
         } else if (resp.status === 401) {

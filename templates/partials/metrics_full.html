@@ -16,17 +16,17 @@
   </div>
   <div class="metric-card">
     <div class="label">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+      No new articles
+    </div>
+    <div class="value">{{ metrics.by_status.skipped }}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--destructive)" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       Failed
     </div>
     <div class="value destructive">{{ metrics.by_status.failed }}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
-      Briefings
-    </div>
-    <div class="value">{{ usage.briefing_count }}</div>
   </div>
 </div>
 
@@ -52,14 +52,17 @@
   {% set total = metrics.total_jobs or 1 %}
   {% set done_pct = (metrics.by_status.done / total * 100) | round(1) %}
   {% set failed_pct = (metrics.by_status.failed / total * 100) | round(1) %}
-  {% set other_pct = [100 - done_pct - failed_pct, 0] | max %}
+  {% set skipped_pct = (metrics.by_status.skipped / total * 100) | round(1) %}
+  {% set other_pct = [100 - done_pct - failed_pct - skipped_pct, 0] | max %}
   <div class="status-bar">
     {% if done_pct > 0 %}<div class="seg-done" style="width:{{ done_pct }}%"></div>{% endif %}
+    {% if skipped_pct > 0 %}<div class="seg-skipped" style="width:{{ skipped_pct }}%"></div>{% endif %}
     {% if failed_pct > 0 %}<div class="seg-failed" style="width:{{ failed_pct }}%"></div>{% endif %}
     {% if other_pct > 0 %}<div class="seg-queued" style="width:{{ other_pct }}%"></div>{% endif %}
   </div>
   <div class="status-legend">
     <div><span>done</span> <span>{{ metrics.by_status.done }}</span></div>
+    <div><span>skipped</span> <span>{{ metrics.by_status.skipped }}</span></div>
     <div><span>failed</span> <span>{{ metrics.by_status.failed }}</span></div>
   </div>
 </div>
@@ -92,7 +95,7 @@
     <div class="value">{{ usage.briefing_count }}</div>
   </div>
   <div class="metric-card">
-    <div class="label">Digests generated</div>
+    <div class="label">Digest emails generated</div>
     <div class="value">{{ usage.digest_count }}</div>
   </div>
 </div>

@@ -1,6 +1,6 @@
 """LLM relevance filter — Gemini-based scoring of article relevance to user intent.
 
-Runs AFTER the heuristic filter on a reduced candidate set.
+Runs AFTER the lexical pre-filter on a reduced candidate set.
 Each article gets a 1–10 relevance score and a one-line reason.
 """
 
@@ -110,11 +110,7 @@ ARTICLES:
         scores = await self._call_gemini(payload, len(articles), settings.GEMINI_API_KEY)
 
         if not scores:
-            log.warning("llm_filter.no_scores", msg="Gemini returned no scores, passing all")
-            for article in articles:
-                article["llm_relevance_score"] = 6
-                article["llm_relevance_reason"] = "LLM scoring failed — included by default"
-            return articles
+            raise RuntimeError("Gemini returned no relevance scores")
 
         # Apply scores and filter
         passed = []
@@ -144,6 +140,7 @@ ARTICLES:
         api_key: str,
     ) -> Dict[int, Dict]:
         """Call Gemini with fallback models. Returns {index: {score, reason}}."""
+        last_error = "All relevance models failed"
         for model in FALLBACK_MODELS:
             url = GEMINI_BASE_URL.format(model=model)
             try:
@@ -154,25 +151,33 @@ ARTICLES:
 
                 if resp.status_code == 429:
                     logger.warning("llm_filter.quota_exceeded", model=model)
+                    last_error = f"HTTP 429 on {model}"
                     continue
 
                 if resp.status_code != 200:
                     logger.error("llm_filter.api_error", model=model, status=resp.status_code)
+                    last_error = f"HTTP {resp.status_code} on {model}"
                     continue
 
                 data = resp.json()
                 candidates = data.get("candidates", [])
                 if not candidates:
+                    last_error = f"No candidates from {model}"
                     continue
 
                 raw_text = candidates[0]["content"]["parts"][0]["text"]
-                return self._parse_scores(raw_text, expected_count)
+                scores = self._parse_scores(raw_text, expected_count)
+                if not scores:
+                    last_error = f"No parseable relevance scores from {model}"
+                    continue
+                return scores
 
             except Exception as exc:
                 logger.error("llm_filter.exception", model=model, error=str(exc))
+                last_error = str(exc)
                 continue
 
-        return {}
+        raise RuntimeError(f"LLM relevance scoring failed: {last_error}")
 
     @staticmethod
     def _parse_scores(text: str, expected_count: int) -> Dict[int, Dict]:

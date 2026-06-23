@@ -35,7 +35,7 @@ async def get_pipeline_metrics(
         select(sqlfunc.count(PipelineEvent.id)).where(
             PipelineEvent.created_at >= since,
             PipelineEvent.stage == "deliver",
-            PipelineEvent.status.in_(["success", "failed"]),
+            PipelineEvent.status.in_(["success", "failed", "skipped"]),
         )
     )
     total_jobs = total_result.scalar() or 0
@@ -58,6 +58,15 @@ async def get_pipeline_metrics(
         )
     )
     failed = failed_result.scalar() or 0
+
+    skipped_result = await session.execute(
+        select(sqlfunc.count(PipelineEvent.id)).where(
+            PipelineEvent.created_at >= since,
+            PipelineEvent.stage == "deliver",
+            PipelineEvent.status == "skipped",
+        )
+    )
+    skipped = skipped_result.scalar() or 0
 
     # Average duration per stage (only successful events with duration)
     stage_avg = {}
@@ -92,7 +101,7 @@ async def get_pipeline_metrics(
     return {
         "period_hours": period_hours,
         "total_jobs": total_jobs,
-        "by_status": {"done": done, "failed": failed},
+        "by_status": {"done": done, "failed": failed, "skipped": skipped},
         "stage_avg_ms": stage_avg,
         "last_error": last_error,
     }

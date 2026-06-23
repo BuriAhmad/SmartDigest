@@ -1,6 +1,6 @@
 """Briefing CRUD endpoints (formerly 'subscriptions')."""
 
-import uuid
+from datetime import timedelta
 from typing import List
 
 import structlog
@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.middleware.rate_limit import limiter
 from app.models.briefing import Briefing
+from app.models.digest import Digest
 from app.schemas.briefings import (
     BriefingCreate,
     BriefingResponse,
@@ -117,29 +118,54 @@ async def trigger_pipeline(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Trigger the pipeline for a briefing via ARQ."""
+    """Trigger the pipeline for a briefing via ARQ.
+
+    Create the digest row before enqueueing so manual runs appear in history even
+    while the worker is still waiting to pick up the job.
+    """
     briefing = await _get_owned_briefing(briefing_id, request, db)
     if not briefing.active:
         raise HTTPException(status_code=404, detail="Briefing is inactive")
     _ensure_delivery_email_matches_account(briefing.email, request)
 
+    digest = Digest(briefing_id=briefing.id, status="queued")
+    db.add(digest)
+    await db.flush()
+    await db.refresh(digest)
     settings = get_settings()
-    job_id = f"arq:job:{uuid.uuid4().hex[:12]}"
+    job_id = f"digest:{digest.id}"
 
+    redis = None
     try:
         redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
         job = await redis.enqueue_job(
             "run_pipeline",
             briefing_id,
+            digest.id,
             _job_id=job_id,
+            _expires=timedelta(seconds=settings.ARQ_JOB_EXPIRES_SECONDS),
         )
-        await redis.close()
-        logger.info("pipeline.triggered", briefing_id=briefing_id, job_id=job_id)
+        if job is None:
+            raise RuntimeError("ARQ did not accept the job")
+        logger.info(
+            "pipeline.triggered",
+            briefing_id=briefing_id,
+            digest_id=digest.id,
+            job_id=job_id,
+        )
     except Exception as exc:
         logger.error("pipeline.enqueue_failed", error=str(exc))
         raise HTTPException(status_code=503, detail="Could not enqueue job — Redis unavailable")
+    finally:
+        if redis is not None:
+            await redis.close()
 
-    return {"job_id": job_id, "status": "queued"}
+    return {
+        "job_id": job_id,
+        "digest_id": digest.id,
+        "status": "queued",
+        "message": "Run queued. It will appear in history now and process when the worker is running.",
+    }
 
 
 def _normalise_email(email: str) -> str:

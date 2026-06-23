@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}Briefings — SmartDigest{% endblock %}
+
+{% block content %}
+<div class="header">
+  <div>
+    <h1>Briefings</h1>
+    <p class="subtitle">Configure what SmartDigest tracks, when it runs, and where each digest email comes from.</p>
+  </div>
+  <a href="/app?new=briefing" class="btn btn-primary">+ New Briefing</a>
+</div>
+
+{% if briefings %}
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Briefing</th>
+        <th>Schedule</th>
+        <th>Sources</th>
+        <th>Last Email</th>
+        <th style="text-align:right;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for briefing in briefings %}
+      {% set stat = briefing_stats.get(briefing.id, {}) %}
+      {% set latest = stat.get("latest") %}
+      <tr>
+        <td>
+          <a href="/app/briefings/{{ briefing.id }}" class="cell-title">{{ briefing.topic }}</a>
+          {% if briefing.intent_description %}
+          <div class="cell-muted">{{ briefing.intent_description | truncate(88, True, '...') }}</div>
+          {% endif %}
+        </td>
+        <td>
+          <span class="cron-schedule mono" data-cron="{{ briefing.schedule }}">{{ briefing.schedule }}</span>
+        </td>
+        <td>{{ briefing.sources|length }}</td>
+        <td>
+          {% if latest %}
+            {% if latest.status == "delivered" %}
+              <span class="badge badge-delivered">Delivered</span>
+            {% elif latest.status == "processing" %}
+              <span class="badge badge-processing"><span class="dot"></span>Processing</span>
+            {% elif latest.status == "failed" %}
+              <span class="badge badge-failed">Failed</span>
+            {% else %}
+              <span class="badge badge-queued">{{ latest.status }}</span>
+            {% endif %}
+            <div class="cell-muted">{{ latest.item_count }} article{{ 's' if latest.item_count != 1 else '' }}</div>
+          {% else %}
+            <span class="cell-muted">No emails yet</span>
+          {% endif %}
+        </td>
+        <td>
+          <div class="cell-actions">
+            <button id="trigger-btn-{{ briefing.id }}" onclick="triggerPipeline('{{ briefing.id }}')" class="btn btn-outline btn-sm">Run now</button>
+            <a href="/app/briefings/{{ briefing.id }}/edit" class="btn btn-outline btn-sm">Edit</a>
+            <a href="/app/briefings/{{ briefing.id }}" class="btn btn-primary btn-sm">Open</a>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="title">No briefings yet</div>
+  <p class="copy">Create a briefing from Home to start generating digest emails.</p>
+</div>
+{% endif %}
+
+<script>
+async function triggerPipeline(briefingId) {
+    var btn = document.getElementById("trigger-btn-" + briefingId);
+    btn.textContent = "Queuing...";
+    btn.disabled = true;
+    try {
+        var resp = await fetch("/api/v1/briefings/" + briefingId + "/trigger", { method: "POST" });
+        if (resp.ok) {
+            var data = await resp.json();
+            showToast(data.message || "Run queued and visible in history.", "success");
+        } else if (resp.status === 429) {
+            showToast("Rate limit reached. Try again later.", "warning");
+        } else if (resp.status === 401) {
+            window.location.href = "/login";
+            return;
+        } else {
+            var errText = await resp.text();
+            var detail = "Failed to trigger";
+            try { detail = JSON.parse(errText).detail || detail; } catch(_) {}
+            showToast(detail, "error");
+        }
+    } catch(ex) {
+        showToast("Network error: " + ex.message, "error");
+    } finally {
+        btn.textContent = "Run now";
+        btn.disabled = false;
+    }
+}
+</script>
+{% endblock %}

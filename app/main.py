@@ -2,6 +2,7 @@
 
 import os
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from typing import AsyncGenerator, Optional
 
 import structlog
@@ -82,6 +83,168 @@ def plan_label(plan: Optional[str]) -> str:
     return labels.get(plan or "free", "Free")
 
 
+def digest_row(
+    digest_id: int,
+    briefing_id: int,
+    status: str,
+    created_at,
+    delivered_at,
+    topic: Optional[str],
+    item_count: int,
+):
+    return SimpleNamespace(
+        id=digest_id,
+        briefing_id=briefing_id,
+        status=status,
+        created_at=created_at,
+        delivered_at=delivered_at,
+        topic=topic,
+        item_count=item_count or 0,
+    )
+
+
+def article_row(item, topic: Optional[str] = None, digest_created_at=None):
+    return SimpleNamespace(
+        id=item.id,
+        digest_id=item.digest_id,
+        topic=topic,
+        source_url=item.source_url,
+        title=item.title,
+        item_url=item.item_url,
+        raw_content=item.raw_content,
+        summary=item.summary,
+        fetch_duration_ms=item.fetch_duration_ms,
+        published_at=item.published_at,
+        updated_at=item.updated_at,
+        llm_relevance_score=item.llm_relevance_score,
+        llm_relevance_reason=item.llm_relevance_reason,
+        digest_created_at=digest_created_at,
+    )
+
+
+async def load_active_sources(db: AsyncSession):
+    from app.models.curated_source import CuratedSource
+
+    result = await db.execute(
+        select(CuratedSource)
+        .where(CuratedSource.active.is_(True))
+        .order_by(CuratedSource.name)
+    )
+    return result.scalars().all()
+
+
+async def load_user_briefings(db: AsyncSession, user_id: int):
+    from app.models.briefing import Briefing
+
+    result = await db.execute(
+        select(Briefing)
+        .where(Briefing.user_id == user_id, Briefing.active.is_(True))
+        .order_by(Briefing.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+async def load_digest_rows(db: AsyncSession, user_id: int, limit: Optional[int] = None):
+    from app.models.briefing import Briefing
+    from app.models.digest import Digest
+    from app.models.digest_item import DigestItem
+
+    stmt = (
+        select(
+            Digest.id,
+            Digest.briefing_id,
+            Digest.status,
+            Digest.created_at,
+            Digest.delivered_at,
+            Briefing.topic,
+            sqlfunc.count(DigestItem.id).label("item_count"),
+        )
+        .join(Briefing, Digest.briefing_id == Briefing.id)
+        .outerjoin(DigestItem, DigestItem.digest_id == Digest.id)
+        .where(Briefing.user_id == user_id)
+        .group_by(
+            Digest.id,
+            Digest.briefing_id,
+            Digest.status,
+            Digest.created_at,
+            Digest.delivered_at,
+            Briefing.topic,
+        )
+        .order_by(Digest.created_at.desc())
+    )
+    if limit:
+        stmt = stmt.limit(limit)
+
+    rows = await db.execute(stmt)
+    return [digest_row(*row) for row in rows.all()]
+
+
+async def load_digest_rows_for_briefing(db: AsyncSession, briefing_id: int):
+    from app.models.briefing import Briefing
+    from app.models.digest import Digest
+    from app.models.digest_item import DigestItem
+
+    rows = await db.execute(
+        select(
+            Digest.id,
+            Digest.briefing_id,
+            Digest.status,
+            Digest.created_at,
+            Digest.delivered_at,
+            Briefing.topic,
+            sqlfunc.count(DigestItem.id).label("item_count"),
+        )
+        .join(Briefing, Digest.briefing_id == Briefing.id)
+        .outerjoin(DigestItem, DigestItem.digest_id == Digest.id)
+        .where(Digest.briefing_id == briefing_id)
+        .group_by(
+            Digest.id,
+            Digest.briefing_id,
+            Digest.status,
+            Digest.created_at,
+            Digest.delivered_at,
+            Briefing.topic,
+        )
+        .order_by(Digest.created_at.desc())
+    )
+    return [digest_row(*row) for row in rows.all()]
+
+
+async def build_briefing_stats(db: AsyncSession, briefings):
+    stats = {}
+    for briefing in briefings:
+        rows = await load_digest_rows_for_briefing(db, briefing.id)
+        stats[briefing.id] = {"latest": rows[0] if rows else None, "digests": rows}
+    return stats
+
+
+def group_digest_rows(rows):
+    groups = []
+    by_id = {}
+    for row in rows:
+        group = by_id.get(row.briefing_id)
+        if group is None:
+            group = SimpleNamespace(
+                briefing_id=row.briefing_id,
+                topic=row.topic,
+                digests=[],
+                digest_count=0,
+                article_count=0,
+            )
+            by_id[row.briefing_id] = group
+            groups.append(group)
+        group.digests.append(row)
+        group.digest_count += 1
+        group.article_count += row.item_count or 0
+    return groups
+
+
+async def source_cards_for_briefing(db: AsyncSession, briefing):
+    selected = set(briefing.sources or [])
+    sources = await load_active_sources(db)
+    return [source for source in sources if source.url in selected]
+
+
 def configure_logging() -> None:
     """Set up structlog — JSON in prod, pretty console in dev."""
     settings = get_settings()
@@ -114,7 +277,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     configure_logging()
     logger.info("app.starting", env=settings.ENV)
 
-    if settings.SEMANTIC_RETRIEVAL_ENABLED:
+    if settings.SEMANTIC_RETRIEVAL_ENABLED and settings.SEMANTIC_WARMUP_ENABLED:
         try:
             warmed = await warm_semantic_model(settings.SEMANTIC_MODEL_NAME)
             logger.info(
@@ -128,6 +291,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 model_name=settings.SEMANTIC_MODEL_NAME,
                 error=str(exc),
             )
+    elif settings.SEMANTIC_RETRIEVAL_ENABLED:
+        logger.info("semantic.warmup_skipped", reason="SEMANTIC_WARMUP_ENABLED is false")
 
     yield
 
@@ -198,73 +363,11 @@ def create_app() -> FastAPI:
     @application.get("/app", response_class=HTMLResponse)
     async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
         """Main dashboard — shows briefings, digests, pipeline health."""
-        from app.models.briefing import Briefing
-        from app.models.digest import Digest
-        from app.models.curated_source import CuratedSource
-
         user_id = request.state.user_id
         user_email = request.state.user_email
-
-        # Load user's active briefings
-        briefings_result = await db.execute(
-            select(Briefing)
-            .where(
-                Briefing.user_id == user_id,
-                Briefing.active.is_(True),
-            )
-            .order_by(Briefing.created_at.desc())
-        )
-        briefings = briefings_result.scalars().all()
-
-        # Load recent digests (last 10) with topic and item count
-        from app.models.digest_item import DigestItem
-
-        digests_result = await db.execute(
-            select(
-                Digest.id,
-                Digest.briefing_id,
-                Digest.status,
-                Digest.created_at,
-                Digest.delivered_at,
-                Briefing.topic,
-                sqlfunc.count(DigestItem.id).label("item_count"),
-            )
-            .join(Briefing, Digest.briefing_id == Briefing.id)
-            .outerjoin(DigestItem, DigestItem.digest_id == Digest.id)
-            .where(Briefing.user_id == user_id)
-            .group_by(
-                Digest.id,
-                Digest.briefing_id,
-                Digest.status,
-                Digest.created_at,
-                Digest.delivered_at,
-                Briefing.topic,
-            )
-            .order_by(Digest.created_at.desc())
-            .limit(10)
-        )
-        digests_raw = digests_result.all()
-
-        # Convert to dicts for template
-        digests = []
-        for row in digests_raw:
-            digests.append({
-                "id": row[0],
-                "briefing_id": row[1],
-                "status": row[2],
-                "created_at": row[3],
-                "delivered_at": row[4],
-                "topic": row[5],
-                "item_count": row[6],
-            })
-
-        # Load curated sources for the modal
-        sources_result = await db.execute(
-            select(CuratedSource)
-            .where(CuratedSource.active.is_(True))
-            .order_by(CuratedSource.name)
-        )
-        sources = sources_result.scalars().all()
+        briefings = await load_user_briefings(db, user_id)
+        digests = await load_digest_rows(db, user_id, limit=10)
+        sources = await load_active_sources(db)
 
         return templates.TemplateResponse("dashboard.html", {
             "request": request,
@@ -299,6 +402,120 @@ def create_app() -> FastAPI:
             "metrics": metrics,
         })
 
+    @application.get("/account/security", response_class=HTMLResponse)
+    async def account_security_page(request: Request):
+        """Account security page for Firebase password and Google linking."""
+        return templates.TemplateResponse("account_security.html", {
+            "request": request,
+            "user_email": request.state.user_email,
+            "active_page": "account",
+            "firebase_config": get_settings().firebase_web_config,
+        })
+
+    @application.get("/app/briefings", response_class=HTMLResponse)
+    async def briefings_page(request: Request, db: AsyncSession = Depends(get_db)):
+        """Briefing management page."""
+        briefings = await load_user_briefings(db, request.state.user_id)
+        briefing_stats = await build_briefing_stats(db, briefings)
+        return templates.TemplateResponse("briefings.html", {
+            "request": request,
+            "user_email": request.state.user_email,
+            "briefings": briefings,
+            "briefing_stats": briefing_stats,
+            "active_page": "briefings",
+        })
+
+    @application.get("/app/briefings/{briefing_id}", response_class=HTMLResponse)
+    async def briefing_detail_page(
+        briefing_id: int,
+        request: Request,
+        db: AsyncSession = Depends(get_db),
+        view: str = "overview",
+    ):
+        """Briefing detail page with overview, latest email, articles, and history."""
+        from app.models.briefing import Briefing
+        from app.models.digest import Digest
+        from app.models.digest_item import DigestItem
+
+        result = await db.execute(
+            select(Briefing).where(
+                Briefing.id == briefing_id,
+                Briefing.user_id == request.state.user_id,
+                Briefing.active.is_(True),
+            )
+        )
+        briefing = result.scalar_one_or_none()
+        if briefing is None:
+            return RedirectResponse(url="/app/briefings", status_code=303)
+
+        digest_rows = await load_digest_rows_for_briefing(db, briefing.id)
+        latest_digest = digest_rows[0] if digest_rows else None
+        source_cards = await source_cards_for_briefing(db, briefing)
+
+        latest_items = []
+        if latest_digest:
+            latest_result = await db.execute(
+                select(DigestItem)
+                .where(DigestItem.digest_id == latest_digest.id)
+                .order_by(DigestItem.id)
+            )
+            latest_items = [
+                article_row(item, briefing.topic, latest_digest.created_at)
+                for item in latest_result.scalars().all()
+            ]
+
+        all_articles_result = await db.execute(
+            select(DigestItem, Digest.created_at)
+            .join(Digest, DigestItem.digest_id == Digest.id)
+            .where(Digest.briefing_id == briefing.id)
+            .order_by(Digest.created_at.desc(), DigestItem.id)
+        )
+        all_articles = [
+            article_row(item, briefing.topic, digest_created_at)
+            for item, digest_created_at in all_articles_result.all()
+        ]
+
+        return templates.TemplateResponse("briefing_detail.html", {
+            "request": request,
+            "user_email": request.state.user_email,
+            "briefing": briefing,
+            "view": view if view in {"overview", "latest", "articles", "history"} else "overview",
+            "source_cards": source_cards,
+            "digest_rows": digest_rows,
+            "latest_digest": latest_digest,
+            "latest_items": latest_items,
+            "all_articles": all_articles,
+            "active_page": "briefings",
+        })
+
+    @application.get("/app/briefings/{briefing_id}/edit", response_class=HTMLResponse)
+    async def briefing_edit_page(
+        briefing_id: int,
+        request: Request,
+        db: AsyncSession = Depends(get_db),
+    ):
+        """Edit a briefing using the existing API update endpoint."""
+        from app.models.briefing import Briefing
+
+        result = await db.execute(
+            select(Briefing).where(
+                Briefing.id == briefing_id,
+                Briefing.user_id == request.state.user_id,
+                Briefing.active.is_(True),
+            )
+        )
+        briefing = result.scalar_one_or_none()
+        if briefing is None:
+            return RedirectResponse(url="/app/briefings", status_code=303)
+
+        return templates.TemplateResponse("briefing_edit.html", {
+            "request": request,
+            "user_email": request.state.user_email,
+            "briefing": briefing,
+            "sources": await load_active_sources(db),
+            "active_page": "briefings",
+        })
+
     @application.get("/app/settings", response_class=HTMLResponse)
     async def settings_page(request: Request, db: AsyncSession = Depends(get_db)):
         """Settings hub for account preferences and data controls."""
@@ -328,60 +545,21 @@ def create_app() -> FastAPI:
             "active_page": "billing",
         })
 
+    @application.get("/app/digests", response_class=HTMLResponse)
     @application.get("/digests", response_class=HTMLResponse)
     async def digests_list_page(request: Request, db: AsyncSession = Depends(get_db)):
         """Digests list page — shows all user digests."""
-        from app.models.digest import Digest
-        from app.models.digest_item import DigestItem
-        from app.models.briefing import Briefing
-
-        user_id = request.state.user_id
-        user_email = request.state.user_email
-
-        digests_result = await db.execute(
-            select(
-                Digest.id,
-                Digest.briefing_id,
-                Digest.status,
-                Digest.created_at,
-                Digest.delivered_at,
-                Briefing.topic,
-                sqlfunc.count(DigestItem.id).label("item_count"),
-            )
-            .join(Briefing, Digest.briefing_id == Briefing.id)
-            .outerjoin(DigestItem, DigestItem.digest_id == Digest.id)
-            .where(Briefing.user_id == user_id)
-            .group_by(
-                Digest.id,
-                Digest.briefing_id,
-                Digest.status,
-                Digest.created_at,
-                Digest.delivered_at,
-                Briefing.topic,
-            )
-            .order_by(Digest.created_at.desc())
-        )
-        digests_raw = digests_result.all()
-
-        digests = []
-        for row in digests_raw:
-            digests.append({
-                "id": row[0],
-                "briefing_id": row[1],
-                "status": row[2],
-                "created_at": row[3],
-                "delivered_at": row[4],
-                "topic": row[5],
-                "item_count": row[6],
-            })
+        digests = await load_digest_rows(db, request.state.user_id)
 
         return templates.TemplateResponse("digests.html", {
             "request": request,
-            "user_email": user_email,
+            "user_email": request.state.user_email,
             "digests": digests,
+            "groups": group_digest_rows(digests),
             "active_page": "digests",
         })
 
+    @application.get("/app/digests/{digest_id}", response_class=HTMLResponse)
     @application.get("/digests/{digest_id}", response_class=HTMLResponse)
     async def digest_detail_page(
         digest_id: int,
@@ -416,7 +594,7 @@ def create_app() -> FastAPI:
                 <body><div class="c"><div class="e">🔍</div>
                 <h1>Digest not found</h1>
                 <p>This digest doesn't exist or you don't have access to it.</p>
-                <a href="/">← Back to Dashboard</a></div></body></html>""",
+                <a href="/app">← Back to Dashboard</a></div></body></html>""",
                 status_code=404,
             )
 
@@ -441,6 +619,7 @@ def create_app() -> FastAPI:
             "active_page": "digests",
         })
 
+    @application.get("/app/admin/metrics", response_class=HTMLResponse)
     @application.get("/metrics", response_class=HTMLResponse)
     async def metrics_page(request: Request):
         """Full pipeline metrics page."""
@@ -450,6 +629,7 @@ def create_app() -> FastAPI:
             "active_page": "metrics",
         })
 
+    @application.get("/app/admin/metrics/content", response_class=HTMLResponse)
     @application.get("/metrics/content", response_class=HTMLResponse)
     async def metrics_content(request: Request):
         """HTMX-polled full metrics content partial."""

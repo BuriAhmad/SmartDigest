@@ -8,7 +8,11 @@ from arq import cron, run_worker
 from arq.connections import RedisSettings
 
 from app.config import get_settings
-from app.services.scheduler import run_pipeline, enqueue_scheduled_digests
+from app.services.scheduler import (
+    enqueue_scheduled_digests,
+    recover_queued_digests,
+    run_pipeline,
+)
 
 settings = get_settings()
 
@@ -26,9 +30,14 @@ class WorkerSettings:
     # Check every 30 minutes; enqueue_scheduled_digests matches briefing.schedule.
     cron_jobs = [
         cron(
+            recover_queued_digests,
+            minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},
+            run_at_startup=True,
+        ),
+        cron(
             enqueue_scheduled_digests,
             minute={0, 30},
-            run_at_startup=False,
+            run_at_startup=True,
         ),
     ]
 

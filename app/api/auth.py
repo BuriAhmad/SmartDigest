@@ -81,6 +81,6 @@ async def create_firebase_session(
 @router.post("/logout")
 async def logout():
     """Clear the session cookie."""
-    response = RedirectResponse(url="/login?logged_out=1", status_code=303)
+    response = RedirectResponse(url="/?logged_out=1", status_code=303)
     response.delete_cookie(key=COOKIE_NAME, path="/")
     return response

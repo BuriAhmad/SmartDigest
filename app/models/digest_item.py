@@ -3,7 +3,8 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -25,11 +26,18 @@ class DigestItem(Base):
     published_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    date_source: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    date_confidence: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    date_resolution_status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    date_candidates_json: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
 
     # ── Filter / relevance metadata ───────────────────────────
     heuristic_score: Mapped[Optional[float]] = mapped_column(
         Float, nullable=True,
-        comment="Score from keyword/heuristic pre-filter (0.0–1.0)."
+        comment="Score from lexical pre-filter (0.0–1.0)."
     )
     llm_relevance_score: Mapped[Optional[int]] = mapped_column(
         Integer, nullable=True,

@@ -33,7 +33,7 @@ class Briefing(Base):
     )
     keywords: Mapped[Optional[list]] = mapped_column(
         JSONB, nullable=True, default=list,
-        comment="Explicit keyword list for heuristic filtering."
+        comment="Explicit keyword list for lexical filtering."
     )
     example_articles: Mapped[Optional[list]] = mapped_column(
         JSONB, nullable=True, default=list,

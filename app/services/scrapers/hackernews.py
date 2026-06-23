@@ -6,13 +6,14 @@ plus HN-specific metadata (points, comment count from HN API if available).
 """
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, List, Optional
 
 import feedparser
 import httpx
 import structlog
 
+from app.services.publication_dates import is_newer_than_window, resolve_publication_date
 from app.services.scrapers.base import BaseScraper, RawArticle
 
 logger = structlog.get_logger()
@@ -29,7 +30,6 @@ class HackerNewsScraper(BaseScraper):
     4. Tag articles with [Show HN], [Ask HN], [Launch HN] etc.
     """
 
-    MAX_ARTICLES = 15
     CONTENT_MAX_CHARS = 4000
     FETCH_TIMEOUT = 12.0
     CONCURRENT_FETCHES = 5  # Don't hammer target sites
@@ -61,7 +61,7 @@ class HackerNewsScraper(BaseScraper):
             log.warning("hn_scraper.parse_error")
             return []
 
-        entries = parsed.entries[:self.MAX_ARTICLES]
+        entries = parsed.entries
 
         # Step 2: Fetch full article content concurrently (with semaphore)
         sem = asyncio.Semaphore(self.CONCURRENT_FETCHES)
@@ -92,18 +92,8 @@ class HackerNewsScraper(BaseScraper):
         link = getattr(entry, "link", "")
         comments_url = getattr(entry, "comments", "")
 
-        # Parse date
-        published_at = None
-        for attr in ("published_parsed", "updated_parsed"):
-            parsed = getattr(entry, attr, None)
-            if parsed:
-                try:
-                    published_at = datetime(*parsed[:6], tzinfo=timezone.utc)
-                except Exception:
-                    pass
-                break
-
-        if since and published_at and published_at < since:
+        date_result = resolve_publication_date(feed_entry=entry)
+        if since and not is_newer_than_window(date_result, since):
             return None
 
         # Detect HN post type from title
@@ -131,7 +121,12 @@ class HackerNewsScraper(BaseScraper):
             url=link,
             source_url="https://news.ycombinator.com/rss",
             raw_content=content,
-            published_at=published_at,
+            published_at=date_result.published_at,
+            updated_at=date_result.updated_at,
+            date_source=date_result.source,
+            date_confidence=date_result.confidence,
+            date_resolution_status=date_result.status,
+            date_candidates=[candidate.to_dict() for candidate in date_result.candidates],
             tags=tags,
         )
 

@@ -12,6 +12,11 @@ import feedparser
 import httpx
 import structlog
 
+from app.services.publication_dates import (
+    STATUS_RESOLVED,
+    is_newer_than_window,
+    resolve_publication_date,
+)
 from app.services.scrapers.base import BaseScraper, RawArticle
 
 logger = structlog.get_logger()
@@ -50,7 +55,6 @@ class GenericRSSScraper(BaseScraper):
     5. Return RawArticle list.
     """
 
-    MAX_ARTICLES = 15
     CONTENT_MAX_CHARS = 4000
     FETCH_TIMEOUT = 15.0
 
@@ -81,12 +85,18 @@ class GenericRSSScraper(BaseScraper):
                 log.warning("rss_scraper.parse_error", error=str(parsed.bozo_exception))
                 return []
 
-            for entry in parsed.entries[:self.MAX_ARTICLES]:
-                # Parse published date
-                published_at = self._parse_date(entry)
+            date_counts = {
+                "feed_resolved": 0,
+                "page_recovered": 0,
+                "unresolved": 0,
+                "skipped_old": 0,
+                "skipped_unknown_date": 0,
+            }
+            for entry in parsed.entries:
+                date_result = resolve_publication_date(feed_entry=entry)
 
-                # Skip articles older than `since`
-                if since and published_at and published_at < since:
+                if since and date_result.published_at and date_result.published_at <= since:
+                    date_counts["skipped_old"] += 1
                     continue
 
                 # Extract content from the RSS entry itself
@@ -99,11 +109,36 @@ class GenericRSSScraper(BaseScraper):
                 # Extract tags from the entry
                 tags = self._extract_tags(entry)
 
-                # If content is thin, try fetching the full article
-                if len(clean_content) < self.MIN_CONTENT_LENGTH and link:
-                    full_text = await self._fetch_full_article(client=None, url=link)
+                needs_page_fetch = bool(link) and (
+                    len(clean_content) < self.MIN_CONTENT_LENGTH
+                    or date_result.published_at is None
+                )
+                if needs_page_fetch:
+                    full_text, page_html, response_headers = await self._fetch_article_page(link)
+                    if page_html:
+                        date_result = resolve_publication_date(
+                            feed_entry=entry,
+                            html=page_html,
+                            url=link,
+                            response_headers=response_headers,
+                        )
                     if full_text and len(full_text) > len(clean_content):
                         clean_content = full_text
+
+                if since and not is_newer_than_window(date_result, since):
+                    if date_result.published_at:
+                        date_counts["skipped_old"] += 1
+                    else:
+                        date_counts["skipped_unknown_date"] += 1
+                    continue
+
+                if date_result.status == STATUS_RESOLVED:
+                    if date_result.source.startswith("feed_"):
+                        date_counts["feed_resolved"] += 1
+                    else:
+                        date_counts["page_recovered"] += 1
+                else:
+                    date_counts["unresolved"] += 1
 
                 # Truncate to max chars
                 if len(clean_content) > self.CONTENT_MAX_CHARS:
@@ -114,12 +149,17 @@ class GenericRSSScraper(BaseScraper):
                     url=link,
                     source_url=source_url,
                     raw_content=clean_content,
-                    published_at=published_at,
+                    published_at=date_result.published_at,
+                    updated_at=date_result.updated_at,
+                    date_source=date_result.source,
+                    date_confidence=date_result.confidence,
+                    date_resolution_status=date_result.status,
+                    date_candidates=[candidate.to_dict() for candidate in date_result.candidates],
                     author=getattr(entry, "author", None),
                     tags=tags,
                 ))
 
-            log.info("rss_scraper.done", articles=len(articles))
+            log.info("rss_scraper.done", articles=len(articles), **date_counts)
 
         except httpx.TimeoutException:
             log.warning("rss_scraper.timeout")
@@ -162,8 +202,8 @@ class GenericRSSScraper(BaseScraper):
                     tags.append(term.strip())
         return tags
 
-    async def _fetch_full_article(self, client, url: str) -> Optional[str]:
-        """Fetch the full article HTML and extract text with trafilatura."""
+    async def _fetch_article_page(self, url: str) -> tuple[Optional[str], Optional[str], Dict[str, str]]:
+        """Fetch the article page once for both full text and date metadata."""
         try:
             async with httpx.AsyncClient(
                 timeout=self.FETCH_TIMEOUT,
@@ -172,6 +212,6 @@ class GenericRSSScraper(BaseScraper):
             ) as c:
                 resp = await c.get(url)
                 resp.raise_for_status()
-                return _try_trafilatura(url, resp.text)
+                return _try_trafilatura(url, resp.text), resp.text, dict(resp.headers)
         except Exception:
-            return None
+            return None, None, {}
