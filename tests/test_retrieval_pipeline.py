@@ -24,6 +24,7 @@ from app.services.scheduler import (
     recover_queued_digests,
     run_pipeline,
 )
+from app.services.summariser import summarise_articles
 
 
 class FakeRawArticle:
@@ -989,6 +990,47 @@ class FilterPipelineTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaisesRegex(RuntimeError, "LLM relevance scoring failed"):
             await pipeline.run(articles)
+
+
+class SummariserResilienceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_summariser_batches_large_article_sets_before_calling_gemini(self):
+        articles = [
+            {
+                "title": f"Article {index}",
+                "url": f"https://example.com/{index}",
+                "raw_content": "AI infrastructure " * 20,
+            }
+            for index in range(10)
+        ]
+        settings = SimpleNamespace(
+            GEMINI_API_KEY="test-key",
+            GEMINI_SUMMARY_BATCH_SIZE=4,
+            GEMINI_SUMMARY_ARTICLE_MAX_CHARS=1200,
+            GEMINI_SUMMARY_MODELS="gemini-2.5-flash-lite",
+            GEMINI_REQUEST_TIMEOUT_SECONDS=45.0,
+            GEMINI_RETRY_ATTEMPTS=1,
+            GEMINI_RETRY_BACKOFF_SECONDS=0,
+        )
+
+        async def fake_batch(batch, topic, intent_context, settings_obj):
+            return [dict(article, summary="ok") for article in batch]
+
+        with patch("app.services.summariser.get_settings", return_value=settings), \
+             patch("app.services.summariser._summarise_batch", AsyncMock(side_effect=fake_batch)) as batch_mock:
+            result = await summarise_articles(
+                articles,
+                topic="AI infra",
+                intent_context="Track AI infra spending",
+            )
+
+        self.assertEqual(len(result), 10)
+        self.assertEqual([len(call.args[0]) for call in batch_mock.call_args_list], [4, 4, 2])
+
+    def test_worker_disables_implicit_arq_retries_for_digest_jobs(self):
+        from worker import WorkerSettings
+
+        self.assertGreaterEqual(WorkerSettings.job_timeout, 900)
+        self.assertEqual(WorkerSettings.max_tries, 1)
 
 
 class SemanticRetrievalTests(unittest.IsolatedAsyncioTestCase):

@@ -40,8 +40,17 @@ class Settings(BaseSettings):
     SEMANTIC_QUERY_MAX_CHARS: int = 2000
     SEMANTIC_ARTICLE_MAX_CHARS: int = 1800
     RETRIEVAL_UNION_MAX_K: int = 30
+    GEMINI_RELEVANCE_MODELS: str = "gemini-2.5-flash,gemini-2.5-flash-lite"
+    GEMINI_SUMMARY_MODELS: str = "gemini-2.5-flash,gemini-2.5-flash-lite"
+    GEMINI_REQUEST_TIMEOUT_SECONDS: float = 45.0
+    GEMINI_RETRY_ATTEMPTS: int = 2
+    GEMINI_RETRY_BACKOFF_SECONDS: float = 1.0
+    GEMINI_SUMMARY_BATCH_SIZE: int = 8
+    GEMINI_SUMMARY_ARTICLE_MAX_CHARS: int = 1800
     ARQ_JOB_EXPIRES_SECONDS: int = 604800
     QUEUED_DIGEST_RECOVERY_AFTER_MINUTES: int = 5
+    ARQ_JOB_TIMEOUT_SECONDS: int = 900
+    ARQ_MAX_TRIES: int = 1
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

@@ -7,6 +7,7 @@ user and explaining why, not just compressing the article.
 Uses fallback model selection and batched API calls for efficiency.
 """
 
+import asyncio
 import json
 import traceback
 from typing import Dict, List, Optional
@@ -19,20 +20,15 @@ from app.config import get_settings
 logger = structlog.get_logger()
 
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-FETCH_TIMEOUT = 60.0
-
-FALLBACK_MODELS = [
-    "gemini-2.0-flash",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-2.5-flash-lite",
-]
+DEFAULT_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+RETRYABLE_STATUS_CODES = {500, 503, 504}
 
 
 def _build_batch_prompt(
     articles: List[Dict],
     intent_context: str,
     topic: str,
+    article_content_max_chars: int,
 ) -> str:
     """Build an intent-aware summarisation prompt.
 
@@ -44,6 +40,8 @@ def _build_batch_prompt(
         content = article.get("raw_content", "")
         if not content:
             content = article.get("title", "No content available")
+        if article_content_max_chars > 0 and len(content) > article_content_max_chars:
+            content = content[:article_content_max_chars] + "..."
 
         # Include the LLM relevance reason if available (from filter stage)
         relevance_note = ""
@@ -120,11 +118,39 @@ async def summarise_articles(
             article["summary"] = "[Summary unavailable — API key not configured]"
         return articles
 
-    # Build the intent-aware prompt
     if not intent_context:
         intent_context = f"Topic: {topic}"
 
-    prompt = _build_batch_prompt(articles, intent_context, topic)
+    batch_size = max(1, settings.GEMINI_SUMMARY_BATCH_SIZE)
+    included_articles: List[Dict] = []
+    for start in range(0, len(articles), batch_size):
+        batch = articles[start:start + batch_size]
+        log.info(
+            "summariser.batch_start",
+            batch_start=start,
+            batch_size=len(batch),
+            total=len(articles),
+        )
+        included_articles.extend(
+            await _summarise_batch(batch, topic, intent_context, settings)
+        )
+
+    return included_articles
+
+
+async def _summarise_batch(
+    articles: List[Dict],
+    topic: str,
+    intent_context: str,
+    settings,
+) -> List[Dict]:
+    log = logger.bind(topic=topic, article_count=len(articles))
+    prompt = _build_batch_prompt(
+        articles,
+        intent_context,
+        topic,
+        settings.GEMINI_SUMMARY_ARTICLE_MAX_CHARS,
+    )
     log.info("summariser.calling_gemini", prompt_length=len(prompt))
 
     payload = {
@@ -132,92 +158,127 @@ async def summarise_articles(
         "generationConfig": {
             "temperature": 0.3,
             "maxOutputTokens": 4096,
+            "responseMimeType": "application/json",
         },
     }
 
     last_error = "All models failed"
-    for model in FALLBACK_MODELS:
+    for model in _configured_models(settings.GEMINI_SUMMARY_MODELS):
         url = GEMINI_BASE_URL.format(model=model)
         log.info("summariser.trying_model", model=model)
-        try:
-            async with httpx.AsyncClient(timeout=FETCH_TIMEOUT) as client:
-                resp = await client.post(
-                    url,
-                    params={"key": settings.GEMINI_API_KEY},
-                    json=payload,
+        attempts = max(1, settings.GEMINI_RETRY_ATTEMPTS)
+        for attempt in range(1, attempts + 1):
+            try:
+                timeout = httpx.Timeout(
+                    settings.GEMINI_REQUEST_TIMEOUT_SECONDS,
+                    connect=10.0,
+                )
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.post(
+                        url,
+                        params={"key": settings.GEMINI_API_KEY},
+                        json=payload,
+                    )
+
+                log.info(
+                    "summariser.response_received",
+                    model=model,
+                    status=resp.status_code,
+                    attempt=attempt,
                 )
 
-            log.info("summariser.response_received", model=model, status=resp.status_code)
+                if resp.status_code == 429:
+                    msg = _error_message(resp)
+                    log.warning("summariser.quota_exceeded", model=model, message=msg[:120])
+                    last_error = f"HTTP 429 on {model}: {msg[:120]}"
+                    break
 
-            if resp.status_code == 429:
-                body = resp.json()
-                msg = body.get("error", {}).get("message", "quota exceeded")
-                log.warning("summariser.quota_exceeded", model=model, message=msg[:120])
-                last_error = f"429 on {model}: {msg[:80]}"
-                continue
-
-            if resp.status_code != 200:
-                log.error("summariser.api_error", model=model, status=resp.status_code)
-                last_error = f"HTTP {resp.status_code} on {model}"
-                continue
-
-            data = resp.json()
-
-            if "error" in data:
-                log.error("summariser.gemini_error_in_200", model=model, error=data["error"])
-                last_error = data["error"].get("message", "unknown")
-                continue
-
-            try:
-                candidates = data.get("candidates", [])
-                if not candidates:
-                    last_error = f"No candidates from {model}"
-                    continue
-
-                raw_text = candidates[0]["content"]["parts"][0]["text"]
-                log.info("summariser.raw_text_preview", preview=raw_text[:200])
-
-            except (KeyError, IndexError) as exc:
-                last_error = str(exc)
-                continue
-
-            # Parse the JSON array of summaries
-            summaries = _parse_summaries(raw_text, len(articles))
-
-            # Apply summaries and handle exclusions
-            included_articles = []
-            for article_idx, article in enumerate(articles):
-                article_num = article_idx + 1
-                summary_data = summaries.get(article_num, {})
-
-                if isinstance(summary_data, dict):
-                    if summary_data.get("exclude", False):
-                        log.info(
-                            "summariser.excluded_article",
-                            title=article.get("title", "")[:60],
-                        )
+                if resp.status_code != 200:
+                    msg = _error_message(resp)
+                    log.error(
+                        "summariser.api_error",
+                        model=model,
+                        status=resp.status_code,
+                        attempt=attempt,
+                        message=msg[:120],
+                    )
+                    last_error = f"HTTP {resp.status_code} on {model}: {msg[:120]}"
+                    if resp.status_code in RETRYABLE_STATUS_CODES and attempt < attempts:
+                        await asyncio.sleep(settings.GEMINI_RETRY_BACKOFF_SECONDS * attempt)
                         continue
-                    article["summary"] = summary_data.get("summary", "[Summary unavailable]")
-                else:
-                    # Backward compat: plain string summaries
-                    article["summary"] = str(summary_data) if summary_data else "[Summary unavailable]"
+                    break
 
-                included_articles.append(article)
+                data = resp.json()
 
-            log.info(
-                "summariser.complete",
-                model=model,
-                input=len(articles),
-                included=len(included_articles),
-                excluded=len(articles) - len(included_articles),
-            )
-            return included_articles
+                if "error" in data:
+                    log.error("summariser.gemini_error_in_200", model=model, error=data["error"])
+                    last_error = data["error"].get("message", "unknown")
+                    break
 
-        except Exception as exc:
-            tb = traceback.format_exc()
-            log.error("summariser.exception", model=model, error=str(exc), traceback=tb)
-            last_error = str(exc)
-            continue
+                try:
+                    candidates = data.get("candidates", [])
+                    if not candidates:
+                        last_error = f"No candidates from {model}"
+                        break
+
+                    raw_text = candidates[0]["content"]["parts"][0]["text"]
+                    log.info("summariser.raw_text_preview", preview=raw_text[:200])
+
+                except (KeyError, IndexError) as exc:
+                    last_error = str(exc)
+                    break
+
+                summaries = _parse_summaries(raw_text, len(articles))
+                if not summaries:
+                    last_error = f"No parseable summaries from {model}"
+                    break
+
+                included_articles = []
+                for article_idx, article in enumerate(articles):
+                    article_num = article_idx + 1
+                    summary_data = summaries.get(article_num, {})
+
+                    if isinstance(summary_data, dict):
+                        if summary_data.get("exclude", False):
+                            log.info(
+                                "summariser.excluded_article",
+                                title=article.get("title", "")[:60],
+                            )
+                            continue
+                        article["summary"] = summary_data.get("summary", "[Summary unavailable]")
+                    else:
+                        article["summary"] = str(summary_data) if summary_data else "[Summary unavailable]"
+
+                    included_articles.append(article)
+
+                log.info(
+                    "summariser.complete",
+                    model=model,
+                    input=len(articles),
+                    included=len(included_articles),
+                    excluded=len(articles) - len(included_articles),
+                )
+                return included_articles
+
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                tb = traceback.format_exc()
+                log.error(
+                    "summariser.transport_error",
+                    model=model,
+                    attempt=attempt,
+                    error=repr(exc),
+                    traceback=tb,
+                )
+                last_error = f"{exc.__class__.__name__} on {model}"
+                if attempt < attempts:
+                    await asyncio.sleep(settings.GEMINI_RETRY_BACKOFF_SECONDS * attempt)
+                    continue
+                break
+            except Exception as exc:
+                tb = traceback.format_exc()
+                log.error("summariser.exception", model=model, error=repr(exc), traceback=tb)
+                last_error = f"{exc.__class__.__name__}: {exc}"
+                break
 
     # All models exhausted
     log.error("summariser.all_models_failed", last_error=last_error)
@@ -267,3 +328,19 @@ def _parse_summaries(text: str, expected_count: int) -> Dict[int, dict]:
     except json.JSONDecodeError as exc:
         logger.warning("summariser.json_parse_error", error=str(exc))
         return {}
+
+
+def _configured_models(raw_models: str) -> List[str]:
+    models = [model.strip() for model in (raw_models or "").split(",") if model.strip()]
+    return models or DEFAULT_MODELS
+
+
+def _error_message(resp: httpx.Response) -> str:
+    try:
+        data = resp.json()
+    except ValueError:
+        return resp.text[:300]
+    error = data.get("error") if isinstance(data, dict) else None
+    if isinstance(error, dict):
+        return str(error.get("message") or error)
+    return str(data)[:300]

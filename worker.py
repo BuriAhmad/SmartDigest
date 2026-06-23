@@ -26,6 +26,8 @@ class WorkerSettings:
     # rediss://... (SSL)
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
     functions = [run_pipeline]
+    job_timeout = settings.ARQ_JOB_TIMEOUT_SECONDS
+    max_tries = settings.ARQ_MAX_TRIES
 
     # Check every 30 minutes; enqueue_scheduled_digests matches briefing.schedule.
     cron_jobs = [

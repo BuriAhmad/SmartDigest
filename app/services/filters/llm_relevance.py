@@ -4,6 +4,7 @@ Runs AFTER the lexical pre-filter on a reduced candidate set.
 Each article gets a 1–10 relevance score and a one-line reason.
 """
 
+import asyncio
 import json
 from typing import Dict, List
 
@@ -16,12 +17,8 @@ logger = structlog.get_logger()
 
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
-FALLBACK_MODELS = [
-    "gemini-2.0-flash",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-2.5-flash-lite",
-]
+DEFAULT_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+RETRYABLE_STATUS_CODES = {500, 503, 504}
 
 
 class LLMRelevanceFilter:
@@ -104,6 +101,7 @@ ARTICLES:
             "generationConfig": {
                 "temperature": 0.1,  # Low temp for consistent scoring
                 "maxOutputTokens": 2048,
+                "responseMimeType": "application/json",
             },
         }
 
@@ -140,42 +138,73 @@ ARTICLES:
         api_key: str,
     ) -> Dict[int, Dict]:
         """Call Gemini with fallback models. Returns {index: {score, reason}}."""
+        settings = get_settings()
         last_error = "All relevance models failed"
-        for model in FALLBACK_MODELS:
+        for model in _configured_models(settings.GEMINI_RELEVANCE_MODELS):
             url = GEMINI_BASE_URL.format(model=model)
-            try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    resp = await client.post(
-                        url, params={"key": api_key}, json=payload,
+            attempts = max(1, settings.GEMINI_RETRY_ATTEMPTS)
+            for attempt in range(1, attempts + 1):
+                try:
+                    timeout = httpx.Timeout(self.timeout, connect=10.0)
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        resp = await client.post(
+                            url, params={"key": api_key}, json=payload,
+                        )
+
+                    if resp.status_code == 429:
+                        message = _error_message(resp)
+                        logger.warning(
+                            "llm_filter.quota_exceeded",
+                            model=model,
+                            message=message[:120],
+                        )
+                        last_error = f"HTTP 429 on {model}: {message[:120]}"
+                        break
+
+                    if resp.status_code != 200:
+                        message = _error_message(resp)
+                        logger.error(
+                            "llm_filter.api_error",
+                            model=model,
+                            status=resp.status_code,
+                            attempt=attempt,
+                            message=message[:120],
+                        )
+                        last_error = f"HTTP {resp.status_code} on {model}: {message[:120]}"
+                        if resp.status_code in RETRYABLE_STATUS_CODES and attempt < attempts:
+                            await asyncio.sleep(settings.GEMINI_RETRY_BACKOFF_SECONDS * attempt)
+                            continue
+                        break
+
+                    data = resp.json()
+                    candidates = data.get("candidates", [])
+                    if not candidates:
+                        last_error = f"No candidates from {model}"
+                        break
+
+                    raw_text = candidates[0]["content"]["parts"][0]["text"]
+                    scores = self._parse_scores(raw_text, expected_count)
+                    if not scores:
+                        last_error = f"No parseable relevance scores from {model}"
+                        break
+                    return scores
+
+                except (httpx.TimeoutException, httpx.TransportError) as exc:
+                    logger.error(
+                        "llm_filter.transport_error",
+                        model=model,
+                        attempt=attempt,
+                        error=repr(exc),
                     )
-
-                if resp.status_code == 429:
-                    logger.warning("llm_filter.quota_exceeded", model=model)
-                    last_error = f"HTTP 429 on {model}"
-                    continue
-
-                if resp.status_code != 200:
-                    logger.error("llm_filter.api_error", model=model, status=resp.status_code)
-                    last_error = f"HTTP {resp.status_code} on {model}"
-                    continue
-
-                data = resp.json()
-                candidates = data.get("candidates", [])
-                if not candidates:
-                    last_error = f"No candidates from {model}"
-                    continue
-
-                raw_text = candidates[0]["content"]["parts"][0]["text"]
-                scores = self._parse_scores(raw_text, expected_count)
-                if not scores:
-                    last_error = f"No parseable relevance scores from {model}"
-                    continue
-                return scores
-
-            except Exception as exc:
-                logger.error("llm_filter.exception", model=model, error=str(exc))
-                last_error = str(exc)
-                continue
+                    last_error = f"{exc.__class__.__name__} on {model}"
+                    if attempt < attempts:
+                        await asyncio.sleep(settings.GEMINI_RETRY_BACKOFF_SECONDS * attempt)
+                        continue
+                    break
+                except Exception as exc:
+                    logger.error("llm_filter.exception", model=model, error=repr(exc))
+                    last_error = f"{exc.__class__.__name__}: {exc}"
+                    break
 
         raise RuntimeError(f"LLM relevance scoring failed: {last_error}")
 
@@ -214,3 +243,19 @@ ARTICLES:
 
         except (json.JSONDecodeError, ValueError):
             return {}
+
+
+def _configured_models(raw_models: str) -> List[str]:
+    models = [model.strip() for model in (raw_models or "").split(",") if model.strip()]
+    return models or DEFAULT_MODELS
+
+
+def _error_message(resp: httpx.Response) -> str:
+    try:
+        data = resp.json()
+    except ValueError:
+        return resp.text[:300]
+    error = data.get("error") if isinstance(data, dict) else None
+    if isinstance(error, dict):
+        return str(error.get("message") or error)
+    return str(data)[:300]
