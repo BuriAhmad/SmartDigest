@@ -1,4 +1,4 @@
-"""Pydantic schemas for briefing endpoints (formerly 'subscriptions')."""
+"""Pydantic schemas for briefing endpoints."""
 
 from datetime import datetime
 from typing import List, Optional

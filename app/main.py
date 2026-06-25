@@ -29,58 +29,12 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 SESSION_COOKIE_NAME = "sd_session"
 
 
-PRICING_PLANS = [
-    {
-        "key": "free",
-        "name": "Free",
-        "price": "$0",
-        "interval": "month",
-        "summary": "For trying SmartDigest with a couple of focused briefings.",
-        "briefings": "1",
-        "digest_emails": "Limited",
-        "manual_runs": "Basic",
-        "sources": "Basic",
-        "cta": "Start free",
-    },
-    {
-        "key": "pro",
-        "name": "Pro",
-        "price": "$4.99",
-        "interval": "month",
-        "summary": "For regular readers who want daily briefing workflows.",
-        "briefings": "More briefings",
-        "digest_emails": "More digest emails",
-        "manual_runs": "Included",
-        "sources": "Expanded",
-        "cta": "Choose Pro",
-        "recommended": True,
-    },
-    {
-        "key": "pro_plus",
-        "name": "Pro+",
-        "price": "$15.99",
-        "interval": "month",
-        "summary": "For power users tracking many topics and sources.",
-        "briefings": "Highest limits",
-        "digest_emails": "Highest volume",
-        "manual_runs": "Highest capacity",
-        "sources": "Most sources",
-        "cta": "Choose Pro+",
-    },
-]
-
-
 def session_payload_from_request(request: Request) -> Optional[dict]:
     """Return a verified session payload if the browser already has a session."""
     token = request.cookies.get(SESSION_COOKIE_NAME)
     if not token:
         return None
     return verify_session_token(token)
-
-
-def plan_label(plan: Optional[str]) -> str:
-    labels = {"free": "Free", "pro": "Pro", "pro_plus": "Pro+"}
-    return labels.get(plan or "free", "Free")
 
 
 def digest_row(
@@ -357,7 +311,6 @@ def create_app() -> FastAPI:
             "request": request,
             "active_page": "public",
             "firebase_config": get_settings().firebase_web_config,
-            "pricing_plans": PRICING_PLANS,
         })
 
     @application.get("/app", response_class=HTMLResponse)
@@ -522,27 +475,11 @@ def create_app() -> FastAPI:
         from app.services.metrics import get_usage_metrics as get_um
 
         usage = await get_um(db, user_id=request.state.user_id)
-        usage["plan_label"] = plan_label(usage.get("plan"))
         return templates.TemplateResponse("settings.html", {
             "request": request,
             "user_email": request.state.user_email,
             "usage": usage,
             "active_page": "settings",
-        })
-
-    @application.get("/app/billing", response_class=HTMLResponse)
-    async def billing_page(request: Request, db: AsyncSession = Depends(get_db)):
-        """Billing and plan management page."""
-        from app.services.metrics import get_usage_metrics as get_um
-
-        usage = await get_um(db, user_id=request.state.user_id)
-        usage["plan_label"] = plan_label(usage.get("plan"))
-        return templates.TemplateResponse("billing.html", {
-            "request": request,
-            "user_email": request.state.user_email,
-            "usage": usage,
-            "pricing_plans": PRICING_PLANS,
-            "active_page": "billing",
         })
 
     @application.get("/app/digests", response_class=HTMLResponse)

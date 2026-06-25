@@ -1,9 +1,8 @@
 """Pydantic schemas for authentication endpoints."""
 
 from datetime import datetime
-from typing import Optional
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 
 class UserResponse(BaseModel):
@@ -12,7 +11,6 @@ class UserResponse(BaseModel):
     id: int
     email: str
     name: str
-    plan: str
     created_at: datetime
 
     model_config = {"from_attributes": True}

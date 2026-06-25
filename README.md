@@ -75,8 +75,8 @@ The web server and background worker are **fully decoupled** — they share only
 - Fetches source articles newer than the last delivered digest before ranking
 - **Purpose-built Hacker News scraper** — fetches full linked article text via `trafilatura`, not just RSS headlines
 - Two-stage filtering: fast BM25 lexical pre-filter → LLM relevance scoring
-- Single-batch Gemini summarisation (one API call per digest regardless of article count)
-- **Model fallback chain**: `gemini-2.0-flash` → `gemini-2.5-flash` → lite variants — maximises uptime on free-tier quotas
+- Batched Gemini summarisation through the shared LLM layer
+- **Model fallback chain**: `gemini-2.5-flash-lite` → `gemini-2.5-flash` — prioritises lower cost while keeping a stronger fallback
 
 ### 🔐 Secure Authentication
 - Email + password accounts with `bcrypt` password hashing
@@ -120,7 +120,7 @@ The web server and background worker are **fully decoupled** — they share only
 | Migrations | **Alembic** | Async-configured, runs on every deploy |
 | Task queue | **ARQ** | Async Redis queue — simpler than Celery, first-class async |
 | Cache / broker | **Redis 7** | Backs both ARQ queue and `slowapi` rate limits |
-| AI summarisation | **Google Gemini 2.0 Flash** | Direct REST via `httpx` — no SDK lock-in, stays in the async event loop |
+| AI summarisation | **Google Gemini 2.5 Flash-Lite** | Official Google GenAI SDK behind SmartDigest's shared LLM layer |
 | Email delivery | **Resend API** | 3,000 free emails/month, no credit card |
 | HTTP client | **httpx (async)** | Async, connection pooling, timeout handling |
 | RSS parsing | **feedparser** | Battle-tested, handles malformed feeds |
@@ -137,7 +137,7 @@ The web server and background worker are **fully decoupled** — they share only
 ## 📐 Database Schema
 
 ```
-users             — email, bcrypt hash, name, plan (free/pro), last_login_at
+users             — email, bcrypt hash, name, firebase_uid, last_login_at
 curated_sources   — pre-approved RSS feeds (seeded via CLI); name, rss_url, active
 briefings         — user's configured feed: topic, intent_description, keywords[],
                     example_articles[], exclusion_keywords[], sources[], schedule, email
@@ -186,7 +186,9 @@ Create a `.env` file in the project root:
 ```env
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/smartdigest
 REDIS_URL=redis://localhost:6379
-GEMINI_API_KEY=your_key_here
+LLM_API_KEY=your_google_ai_studio_key_here
+LLM_RELEVANCE_MODELS=gemini-2.5-flash-lite,gemini-2.5-flash
+LLM_SUMMARY_MODELS=gemini-2.5-flash-lite,gemini-2.5-flash
 RESEND_API_KEY=your_key_here          # Omit entirely for dev mode (emails logged to console)
 RESEND_FROM_EMAIL=onboarding@resend.dev
 JWT_SECRET=generate-a-random-secret-here
@@ -245,11 +247,17 @@ SmartDigest splits into two Railway services — each with its own `railway.toml
 |---|---|
 | `DATABASE_URL` | Auto-injected by Railway Postgres |
 | `REDIS_URL` | Auto-injected by Railway Redis |
-| `GEMINI_API_KEY` | Your Google AI Studio key |
+| `LLM_API_KEY` | Your Google AI Studio key |
+| `LLM_RELEVANCE_MODELS` | Comma-separated fallback chain for relevance scoring |
+| `LLM_SUMMARY_MODELS` | Comma-separated fallback chain for summarisation |
 | `RESEND_API_KEY` | Your Resend key |
 | `RESEND_FROM_EMAIL` | Your verified sender email |
 | `JWT_SECRET` | Random secret — `openssl rand -hex 32` |
 | `ENV` | `production` |
+
+Legacy `GEMINI_API_KEY`, `GEMINI_RELEVANCE_MODELS`, and `GEMINI_SUMMARY_MODELS`
+are still accepted for existing deployments, but new environments should use
+the `LLM_*` names.
 
 ### Step 4 — Deploy
 
@@ -316,12 +324,13 @@ SmartDigest/
 │   │   ├── mailer.py        # Resend email delivery
 │   │   ├── metrics.py       # SQL aggregates from pipeline_events
 │   │   ├── scheduler.py     # ARQ job: full pipeline (fetch→filter→summarise→deliver)
-│   │   ├── summariser.py    # Gemini batch summarisation + model fallback
+│   │   ├── summariser.py    # Intent-aware batch summarisation
+│   │   ├── llm/             # Shared Google GenAI provider layer
 │   │   │
 │   │   ├── filters/
 │   │   │   ├── bm25.py          # BM25 lexical pre-filter
 │   │   │   ├── heuristic.py     # Legacy keyword-weighted pre-filter
-│   │   │   └── llm_relevance.py # Gemini 1–10 relevance scoring
+│   │   │   └── llm_relevance.py # LLM 1–10 relevance scoring
 │   │   │
 │   │   └── scrapers/
 │   │       ├── base.py          # BaseScraper interface + RawArticle dataclass
@@ -371,14 +380,14 @@ The BM25 lexical filter runs first for free, with hard exclusion keywords applie
 **Coverage-first retrieval**
 Fetch uses the last delivered digest timestamp as its lower bound and avoids global pre-ranking caps. BM25 then ranks the full time-window candidate set generously, so the LLM is reserved for final intent-aware precision instead of compensating for missed fetch coverage.
 
-**Direct REST over SDK (Gemini)**  
-Calling the Gemini REST API directly via `httpx` removes SDK release-cycle dependency, and `httpx.AsyncClient` integrates naturally into FastAPI's async event loop without thread pool overhead.
+**Shared LLM provider layer**
+SmartDigest keeps provider details in `app/services/llm/`. Relevance scoring and summarisation ask for structured JSON through the official Google GenAI SDK, so retry policy, fallback models, API-key handling, and response parsing live in one place.
 
-**Single-batch summarisation**  
-All articles for a digest are summarised in one Gemini call. This uses the large context window efficiently and costs exactly one API call per digest run — critical for staying within free-tier RPM limits.
+**Batched summarisation**
+Articles are summarised in configurable batches. This keeps prompt sizes predictable while still using Gemini's context window efficiently.
 
 **Model fallback chain**  
-Free-tier Gemini quotas are per-model, not shared. The summariser tries `gemini-2.0-flash` → `gemini-2.5-flash` → lite variants in sequence. A quota exhaustion on one model doesn't fail the digest — it silently upgrades to the next available model.
+SmartDigest tries `gemini-2.5-flash-lite` first, then falls back to `gemini-2.5-flash`. The same fallback policy is shared by relevance scoring and summarisation, and can be changed with environment variables without editing code.
 
 **Decoupled worker**  
 The web server never waits on pipeline work. A trigger enqueues a job to Redis and returns `202 Accepted` in milliseconds. The worker picks it up asynchronously. Both services share only the queue and the database — they can be scaled, restarted, or redeployed independently.
@@ -388,11 +397,6 @@ SmartDigest is browser-first (Jinja2 + HTMX), so `httpOnly` cookies are the natu
 
 **Purpose-built HN scraper**  
 Hacker News RSS feeds contain only titles and links. The dedicated `HackerNewsScraper` fetches each linked article and extracts full body text using `trafilatura`, dramatically improving summarisation quality for HN sources.
-
-**Plan column for future monetisation**  
-A `plan` field (`free`/`pro`) lives on `users` from day one. It's not enforced yet but avoids a schema migration when gating features like higher trigger limits or more sources per briefing.
-
----
 
 ## 🗺️ Roadmap
 

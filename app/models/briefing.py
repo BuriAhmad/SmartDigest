@@ -1,4 +1,4 @@
-"""Briefing ORM model — formerly 'Subscription'.
+"""Briefing ORM model.
 
 A Briefing represents a user-configured digest feed: a topic, an intent
 statement describing what they want to learn, selected content sources,

@@ -16,6 +16,14 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/smartdigest"
     REDIS_URL: str = "redis://localhost:6379"
+    LLM_API_KEY: str = ""
+    LLM_RELEVANCE_MODELS: str = ""
+    LLM_SUMMARY_MODELS: str = ""
+    LLM_REQUEST_TIMEOUT_SECONDS: float = 45.0
+    LLM_RETRY_ATTEMPTS: int = 2
+    LLM_RETRY_BACKOFF_SECONDS: float = 1.0
+    LLM_SUMMARY_BATCH_SIZE: int = 8
+    LLM_SUMMARY_ARTICLE_MAX_CHARS: int = 1800
     GEMINI_API_KEY: str = ""
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
@@ -40,8 +48,8 @@ class Settings(BaseSettings):
     SEMANTIC_QUERY_MAX_CHARS: int = 2000
     SEMANTIC_ARTICLE_MAX_CHARS: int = 1800
     RETRIEVAL_UNION_MAX_K: int = 30
-    GEMINI_RELEVANCE_MODELS: str = "gemini-2.5-flash,gemini-2.5-flash-lite"
-    GEMINI_SUMMARY_MODELS: str = "gemini-2.5-flash,gemini-2.5-flash-lite"
+    GEMINI_RELEVANCE_MODELS: str = "gemini-2.5-flash-lite,gemini-2.5-flash"
+    GEMINI_SUMMARY_MODELS: str = "gemini-2.5-flash-lite,gemini-2.5-flash"
     GEMINI_REQUEST_TIMEOUT_SECONDS: float = 45.0
     GEMINI_RETRY_ATTEMPTS: int = 2
     GEMINI_RETRY_BACKOFF_SECONDS: float = 1.0

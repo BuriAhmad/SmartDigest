@@ -1,4 +1,4 @@
-"""Briefing CRUD endpoints (formerly 'subscriptions')."""
+"""Briefing CRUD endpoints."""
 
 from datetime import timedelta
 from typing import List

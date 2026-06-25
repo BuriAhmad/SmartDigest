@@ -149,7 +149,6 @@ async def get_usage_metrics(
 
     return {
         "user_email": user.email,
-        "plan": user.plan,
         "briefing_count": briefing_count,
         "digest_count": digest_count,
     }

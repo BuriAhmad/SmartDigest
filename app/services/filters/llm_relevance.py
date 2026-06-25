@@ -1,28 +1,35 @@
-"""LLM relevance filter — Gemini-based scoring of article relevance to user intent.
+"""LLM relevance filter: scores article relevance to user intent.
 
-Runs AFTER the lexical pre-filter on a reduced candidate set.
-Each article gets a 1–10 relevance score and a one-line reason.
+Runs after the retrieval pre-filter on a reduced candidate set.
+Each article gets a 1-10 relevance score and a one-line reason.
 """
 
-import asyncio
-import json
-from typing import Dict, List
+from typing import Any, Dict, List
 
-import httpx
+from pydantic import BaseModel, Field
 import structlog
 
 from app.config import get_settings
+from app.services.llm import (
+    LLMGenerationConfig,
+    configured_models,
+    generate_json,
+    get_llm_api_key,
+)
 
 logger = structlog.get_logger()
 
-GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+DEFAULT_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash"]
 
-DEFAULT_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
-RETRYABLE_STATUS_CODES = {500, 503, 504}
+
+class RelevanceScore(BaseModel):
+    index: int
+    score: int = Field(ge=1, le=10)
+    reason: str = ""
 
 
 class LLMRelevanceFilter:
-    """Score articles for relevance using Gemini, then filter by threshold."""
+    """Score articles for relevance using the configured LLM provider."""
 
     def __init__(
         self,
@@ -40,7 +47,6 @@ class LLMRelevanceFilter:
         for i, article in enumerate(articles, 1):
             title = article.get("title", "Untitled")
             content = article.get("raw_content", "")
-            # Send first 1500 chars of content for scoring (save tokens)
             if len(content) > 1500:
                 content = content[:1500] + "..."
             article_blocks.append(
@@ -60,10 +66,10 @@ class LLMRelevanceFilter:
 Below are {len(articles)} candidate articles. For EACH article, assess how relevant it is to the user's intent.
 
 Score each article on a scale of 1-10:
-- 1-3: Not relevant — topic doesn't match the user's interest
-- 4-5: Marginally relevant — tangentially related but not directly useful
-- 6-7: Relevant — directly addresses the user's topic area
-- 8-10: Highly relevant — precisely matches what the user wants to track
+- 1-3: Not relevant - topic doesn't match the user's interest
+- 4-5: Marginally relevant - tangentially related but not directly useful
+- 6-7: Relevant - directly addresses the user's topic area
+- 8-10: Highly relevant - precisely matches what the user wants to track
 
 Respond with ONLY a valid JSON array. Each element must have exactly these fields:
 - "index": the article number (1-based integer)
@@ -76,41 +82,26 @@ ARTICLES:
 {articles_text}"""
 
     async def score_and_filter(self, articles: List[Dict]) -> List[Dict]:
-        """Score articles via Gemini and filter those below threshold.
-
-        Attaches `llm_relevance_score` and `llm_relevance_reason` to each article.
-        Returns only articles scoring >= threshold.
-        """
+        """Score articles via the LLM provider and filter below threshold."""
         settings = get_settings()
         log = logger.bind(article_count=len(articles))
 
         if not articles:
             return articles
 
-        if not settings.GEMINI_API_KEY:
-            log.warning("llm_filter.no_api_key", msg="Skipping LLM filter — no API key")
-            # Pass all through with neutral scores
+        if not get_llm_api_key(settings):
+            log.warning("llm_filter.no_api_key", msg="Skipping LLM filter - no API key")
             for article in articles:
                 article["llm_relevance_score"] = 6
                 article["llm_relevance_reason"] = "LLM filter skipped (no API key)"
             return articles
 
         prompt = self._build_prompt(articles)
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.1,  # Low temp for consistent scoring
-                "maxOutputTokens": 2048,
-                "responseMimeType": "application/json",
-            },
-        }
-
-        scores = await self._call_gemini(payload, len(articles), settings.GEMINI_API_KEY)
+        scores = await self._call_llm(prompt, len(articles), settings)
 
         if not scores:
-            raise RuntimeError("Gemini returned no relevance scores")
+            raise RuntimeError("LLM relevance scoring failed: no relevance scores")
 
-        # Apply scores and filter
         passed = []
         for i, article in enumerate(articles):
             article_num = i + 1
@@ -127,135 +118,71 @@ ARTICLES:
                     score=article["llm_relevance_score"],
                 )
 
-        # Sort by LLM score descending
         passed.sort(key=lambda a: a.get("llm_relevance_score", 0), reverse=True)
         return passed
 
-    async def _call_gemini(
+    async def _call_llm(
         self,
-        payload: dict,
+        prompt: str,
         expected_count: int,
-        api_key: str,
+        settings: Any,
     ) -> Dict[int, Dict]:
-        """Call Gemini with fallback models. Returns {index: {score, reason}}."""
-        settings = get_settings()
-        last_error = "All relevance models failed"
-        for model in _configured_models(settings.GEMINI_RELEVANCE_MODELS):
-            url = GEMINI_BASE_URL.format(model=model)
-            attempts = max(1, settings.GEMINI_RETRY_ATTEMPTS)
-            for attempt in range(1, attempts + 1):
-                try:
-                    timeout = httpx.Timeout(self.timeout, connect=10.0)
-                    async with httpx.AsyncClient(timeout=timeout) as client:
-                        resp = await client.post(
-                            url, params={"key": api_key}, json=payload,
-                        )
-
-                    if resp.status_code == 429:
-                        message = _error_message(resp)
-                        logger.warning(
-                            "llm_filter.quota_exceeded",
-                            model=model,
-                            message=message[:120],
-                        )
-                        last_error = f"HTTP 429 on {model}: {message[:120]}"
-                        break
-
-                    if resp.status_code != 200:
-                        message = _error_message(resp)
-                        logger.error(
-                            "llm_filter.api_error",
-                            model=model,
-                            status=resp.status_code,
-                            attempt=attempt,
-                            message=message[:120],
-                        )
-                        last_error = f"HTTP {resp.status_code} on {model}: {message[:120]}"
-                        if resp.status_code in RETRYABLE_STATUS_CODES and attempt < attempts:
-                            await asyncio.sleep(settings.GEMINI_RETRY_BACKOFF_SECONDS * attempt)
-                            continue
-                        break
-
-                    data = resp.json()
-                    candidates = data.get("candidates", [])
-                    if not candidates:
-                        last_error = f"No candidates from {model}"
-                        break
-
-                    raw_text = candidates[0]["content"]["parts"][0]["text"]
-                    scores = self._parse_scores(raw_text, expected_count)
-                    if not scores:
-                        last_error = f"No parseable relevance scores from {model}"
-                        break
-                    return scores
-
-                except (httpx.TimeoutException, httpx.TransportError) as exc:
-                    logger.error(
-                        "llm_filter.transport_error",
-                        model=model,
-                        attempt=attempt,
-                        error=repr(exc),
-                    )
-                    last_error = f"{exc.__class__.__name__} on {model}"
-                    if attempt < attempts:
-                        await asyncio.sleep(settings.GEMINI_RETRY_BACKOFF_SECONDS * attempt)
-                        continue
-                    break
-                except Exception as exc:
-                    logger.error("llm_filter.exception", model=model, error=repr(exc))
-                    last_error = f"{exc.__class__.__name__}: {exc}"
-                    break
-
-        raise RuntimeError(f"LLM relevance scoring failed: {last_error}")
+        """Call the shared LLM layer. Returns {index: {score, reason}}."""
+        response = await generate_json(
+            prompt=prompt,
+            response_schema=list[RelevanceScore],
+            config=LLMGenerationConfig(
+                models=configured_models(
+                    _setting(settings, "LLM_RELEVANCE_MODELS", "")
+                    or _setting(settings, "GEMINI_RELEVANCE_MODELS", ""),
+                    DEFAULT_MODELS,
+                ),
+                temperature=0.1,
+                max_output_tokens=2048,
+                timeout_seconds=float(
+                    _setting(settings, "LLM_REQUEST_TIMEOUT_SECONDS", 0)
+                    or _setting(settings, "GEMINI_REQUEST_TIMEOUT_SECONDS", self.timeout)
+                ),
+                retry_attempts=int(
+                    _setting(settings, "LLM_RETRY_ATTEMPTS", 0)
+                    or _setting(settings, "GEMINI_RETRY_ATTEMPTS", 1)
+                ),
+                retry_backoff_seconds=float(
+                    _setting(settings, "LLM_RETRY_BACKOFF_SECONDS", 0)
+                    or _setting(settings, "GEMINI_RETRY_BACKOFF_SECONDS", 1.0)
+                ),
+                log_name="llm_relevance",
+            ),
+        )
+        return self._normalise_scores(response, expected_count)
 
     @staticmethod
-    def _parse_scores(text: str, expected_count: int) -> Dict[int, Dict]:
-        """Parse Gemini's JSON response into {index: {score, reason}}."""
-        cleaned = text.strip()
-
-        # Remove markdown code blocks
-        if cleaned.startswith("```"):
-            lines = cleaned.split("\n")
-            cleaned = "\n".join(lines[1:-1]) if len(lines) > 2 else cleaned
-
-        start = cleaned.find("[")
-        end = cleaned.rfind("]")
-        if start == -1 or end == -1:
+    def _normalise_scores(response: Any, expected_count: int) -> Dict[int, Dict]:
+        """Normalise SDK parsed objects or JSON dicts into score records."""
+        if not isinstance(response, list):
             return {}
 
-        try:
-            parsed = json.loads(cleaned[start:end + 1])
-            if not isinstance(parsed, list):
-                return {}
-
-            result = {}
-            for item in parsed:
-                if isinstance(item, dict):
-                    idx = item.get("index")
-                    score = item.get("score", 5)
-                    reason = item.get("reason", "")
-                    if idx is not None:
-                        result[int(idx)] = {
-                            "score": int(score),
-                            "reason": str(reason)[:200],
-                        }
-            return result
-
-        except (json.JSONDecodeError, ValueError):
-            return {}
-
-
-def _configured_models(raw_models: str) -> List[str]:
-    models = [model.strip() for model in (raw_models or "").split(",") if model.strip()]
-    return models or DEFAULT_MODELS
+        result: Dict[int, Dict] = {}
+        for item in response:
+            data = item.model_dump() if isinstance(item, BaseModel) else item
+            if not isinstance(data, dict):
+                continue
+            idx = data.get("index")
+            if idx is None:
+                continue
+            try:
+                idx_int = int(idx)
+                if idx_int < 1 or idx_int > expected_count:
+                    continue
+                score = max(1, min(10, int(data.get("score", 5))))
+            except (TypeError, ValueError):
+                continue
+            result[idx_int] = {
+                "score": score,
+                "reason": str(data.get("reason", ""))[:200],
+            }
+        return result
 
 
-def _error_message(resp: httpx.Response) -> str:
-    try:
-        data = resp.json()
-    except ValueError:
-        return resp.text[:300]
-    error = data.get("error") if isinstance(data, dict) else None
-    if isinstance(error, dict):
-        return str(error.get("message") or error)
-    return str(data)[:300]
+def _setting(settings: Any, name: str, default: Any) -> Any:
+    return getattr(settings, name, default)

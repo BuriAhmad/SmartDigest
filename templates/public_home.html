@@ -12,9 +12,8 @@
       </a>
       <nav class="public-nav" style="display:flex;align-items:center;gap:18px;font-size:14px;color:var(--muted-fg);">
         <a href="#features">Features</a>
-        <a href="#pricing">Pricing</a>
         <a href="/login" class="btn btn-outline btn-sm">Log in</a>
-        <a href="/login?tab=signup" class="btn btn-primary btn-sm">Start free</a>
+        <a href="/login?tab=signup" class="btn btn-primary btn-sm">Create account</a>
       </nav>
     </div>
   </header>
@@ -29,7 +28,7 @@
             SmartDigest turns curated sources into intent-aware digest emails. Describe what you want to learn, pick sources, and get summarized articles ranked by relevance to your actual goal.
           </p>
           <div class="public-hero-actions" style="display:flex;gap:12px;flex-wrap:wrap;">
-            <a href="/login?tab=signup" class="btn btn-primary">Start free</a>
+            <a href="/login?tab=signup" class="btn btn-primary">Create account</a>
           </div>
         </div>
 
@@ -75,34 +74,6 @@
       </div>
     </section>
 
-    <section id="pricing" class="public-section" style="max-width:1152px;margin:0 auto;padding:44px 24px 64px;">
-      <div class="section-label">Pricing</div>
-      <div class="pricing-grid">
-        {% for plan in pricing_plans %}
-        <div class="pricing-card {% if plan.recommended %}recommended{% endif %}">
-          <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
-            <div>
-              <div class="panel-title">{{ plan.name }}</div>
-              <p class="panel-subtitle">{{ plan.summary }}</p>
-            </div>
-            {% if plan.recommended %}<span class="badge badge-delivered">Recommended</span>{% endif %}
-          </div>
-          <div style="margin:22px 0;">
-            <span class="value" style="font-size:34px;">{{ plan.price }}</span>
-            <span class="cell-muted">/{{ plan.interval }}</span>
-          </div>
-          <div class="subscription-checklist">
-            <div><span>✓</span><p>{{ plan.briefings }}</p></div>
-            <div><span>✓</span><p>{{ plan.digest_emails }}</p></div>
-            <div><span>✓</span><p>{{ plan.sources }} source selection</p></div>
-            <div><span>✓</span><p>{{ plan.manual_runs }} manual runs</p></div>
-            <div><span>✓</span><p>Briefing archive</p></div>
-          </div>
-          <a href="/login?tab=signup" class="btn {% if plan.recommended %}btn-primary{% else %}btn-outline{% endif %}" style="margin-top:20px;width:100%;justify-content:center;">{{ plan.cta }}</a>
-        </div>
-        {% endfor %}
-      </div>
-    </section>
   </main>
 </div>
 {% endblock %}
@@ -116,49 +87,6 @@
 
 .public-hero-grid > * {
   min-width: 0;
-}
-
-.subscription-checklist {
-  display: grid;
-  gap: 10px;
-}
-
-.subscription-checklist > div {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  color: var(--secondary-fg);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.subscription-checklist span {
-  color: var(--primary);
-  font-weight: 700;
-  line-height: 1.55;
-}
-
-.subscription-checklist strong {
-  color: var(--fg);
-  font-weight: 600;
-}
-
-.pricing-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.pricing-card {
-  border: 1px solid var(--border);
-  background: var(--card);
-  border-radius: var(--radius);
-  padding: 18px;
-}
-
-.pricing-card.recommended {
-  border-color: hsl(172 66% 50% / 0.55);
-  box-shadow: 0 0 0 1px hsl(172 66% 50% / 0.08);
 }
 
 @media (max-width: 960px) {
@@ -194,8 +122,7 @@
     gap: 8px !important;
   }
 
-  .public-nav a[href="#features"],
-  .public-nav a[href="#pricing"] {
+  .public-nav a[href="#features"] {
     display: none !important;
   }
 
@@ -237,16 +164,11 @@
   }
 
   .public-shell .panel,
-  .public-shell .pricing-card,
   .public-shell .metric-card,
   .public-shell .article {
     min-width: 0;
     max-width: 100%;
     width: 100%;
-  }
-
-  .pricing-grid {
-    grid-template-columns: 1fr;
   }
 
   .public-shell .article {

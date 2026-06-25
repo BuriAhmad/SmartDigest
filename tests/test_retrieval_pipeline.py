@@ -13,11 +13,14 @@ from app.services.publication_dates import STATUS_UPDATED_ONLY, resolve_publicat
 from app.services.fetcher import fetch_articles
 from app.services.filters import FilterPipeline
 from app.services.filters.bm25 import BM25Filter
+from app.services.filters.llm_relevance import LLMRelevanceFilter, RelevanceScore
 from app.services.filters.semantic import SemanticRetriever
 from app.services.intent import extract_all_keywords
+from app.services.llm import configured_models
 from app.services.scrapers import build_default_registry
 from app.services.scrapers.hackernews import HackerNewsScraper
 from app.services.scrapers.rss_generic import GenericRSSScraper
+from app.services.summariser import SummaryResult
 from app.services.scheduler import (
     _latest_scheduled_occurrence,
     enqueue_scheduled_digests,
@@ -1025,6 +1028,66 @@ class SummariserResilienceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(result), 10)
         self.assertEqual([len(call.args[0]) for call in batch_mock.call_args_list], [4, 4, 2])
+
+    async def test_summariser_uses_generic_llm_models_with_flash_lite_first(self):
+        from app.services.summariser import _summarise_batch
+
+        articles = [
+            {
+                "title": "AI infrastructure update",
+                "url": "https://example.com/ai",
+                "raw_content": "AI infrastructure spending is rising.",
+            }
+        ]
+        settings = SimpleNamespace(
+            LLM_SUMMARY_MODELS="gemini-2.5-flash-lite,gemini-2.5-flash",
+            LLM_REQUEST_TIMEOUT_SECONDS=30.0,
+            LLM_RETRY_ATTEMPTS=1,
+            LLM_RETRY_BACKOFF_SECONDS=0,
+            LLM_SUMMARY_ARTICLE_MAX_CHARS=1200,
+        )
+
+        with patch(
+            "app.services.summariser.generate_json",
+            AsyncMock(return_value=[SummaryResult(index=1, summary="Useful update", exclude=False)]),
+        ) as generate_mock:
+            result = await _summarise_batch(
+                articles,
+                topic="AI infra",
+                intent_context="Track AI infrastructure spending",
+                settings=settings,
+            )
+
+        self.assertEqual(result[0]["summary"], "Useful update")
+        config = generate_mock.call_args.kwargs["config"]
+        self.assertEqual(config.models, ["gemini-2.5-flash-lite", "gemini-2.5-flash"])
+
+
+class LLMProviderTests(unittest.IsolatedAsyncioTestCase):
+    def test_configured_models_parses_fallback_chain(self):
+        self.assertEqual(
+            configured_models(" gemini-2.5-flash-lite, gemini-2.5-flash "),
+            ["gemini-2.5-flash-lite", "gemini-2.5-flash"],
+        )
+
+    async def test_relevance_filter_uses_generic_llm_models_with_flash_lite_first(self):
+        settings = SimpleNamespace(
+            LLM_RELEVANCE_MODELS="gemini-2.5-flash-lite,gemini-2.5-flash",
+            LLM_REQUEST_TIMEOUT_SECONDS=30.0,
+            LLM_RETRY_ATTEMPTS=1,
+            LLM_RETRY_BACKOFF_SECONDS=0,
+        )
+        filter_ = LLMRelevanceFilter("Track AI safety")
+
+        with patch(
+            "app.services.filters.llm_relevance.generate_json",
+            AsyncMock(return_value=[RelevanceScore(index=1, score=8, reason="Matches intent")]),
+        ) as generate_mock:
+            scores = await filter_._call_llm("prompt", expected_count=1, settings=settings)
+
+        self.assertEqual(scores[1]["score"], 8)
+        config = generate_mock.call_args.kwargs["config"]
+        self.assertEqual(config.models, ["gemini-2.5-flash-lite", "gemini-2.5-flash"])
 
     def test_worker_disables_implicit_arq_retries_for_digest_jobs(self):
         from worker import WorkerSettings
