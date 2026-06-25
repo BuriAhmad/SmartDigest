@@ -8,6 +8,7 @@ import structlog
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from arq import Retry
 from sqlalchemy import func, select
 from arq.connections import create_pool, RedisSettings
 from app.config import get_settings
@@ -22,6 +23,7 @@ from app.services.summariser import summarise_articles
 from app.services.mailer import send_digest_email
 from app.services.intent import build_intent_context, build_semantic_query, extract_all_keywords
 from app.services.filters import FilterPipeline
+from app.services.llm import LLMRetryableError
 
 logger = structlog.get_logger()
 
@@ -241,12 +243,15 @@ async def run_pipeline(ctx: dict, briefing_id: int, digest_id: Optional[int] = N
 
         except Exception as exc:
             filter_ms = _now_ms() - filter_start_ms
-            session.add(PipelineEvent(
-                digest_id=digest_id, stage="filter", status="failed",
-                duration_ms=filter_ms, error_msg=str(exc),
-            ))
-            digest.status = "failed"
-            await session.commit()
+            await _retry_or_mark_stage_failed(
+                session=session,
+                digest=digest,
+                digest_id=digest_id,
+                stage="filter",
+                duration_ms=filter_ms,
+                exc=exc,
+                ctx=ctx,
+            )
             log.error("pipeline.filter_error", error=str(exc))
             return {"status": "failed", "error": str(exc), "digest_id": digest_id}
 
@@ -274,12 +279,15 @@ async def run_pipeline(ctx: dict, briefing_id: int, digest_id: Optional[int] = N
 
         except Exception as exc:
             summarise_ms = _now_ms() - summarise_start_ms
-            session.add(PipelineEvent(
-                digest_id=digest_id, stage="summarise", status="failed",
-                duration_ms=summarise_ms, error_msg=str(exc),
-            ))
-            digest.status = "failed"
-            await session.commit()
+            await _retry_or_mark_stage_failed(
+                session=session,
+                digest=digest,
+                digest_id=digest_id,
+                stage="summarise",
+                duration_ms=summarise_ms,
+                exc=exc,
+                ctx=ctx,
+            )
             log.error("pipeline.summarise_error", error=str(exc))
             return {"status": "failed", "error": str(exc), "digest_id": digest_id}
 
@@ -464,12 +472,19 @@ async def enqueue_scheduled_digests(ctx: dict) -> dict:
 
 
 async def recover_queued_digests(ctx: dict) -> dict:
-    """Re-enqueue manual runs that are still queued after a short grace period."""
+    """Re-enqueue digest runs left behind while the worker was unavailable."""
     settings = get_settings()
-    cutoff = datetime.now(timezone.utc) - timedelta(
+    queued_cutoff = datetime.now(timezone.utc) - timedelta(
         minutes=settings.QUEUED_DIGEST_RECOVERY_AFTER_MINUTES
     )
-    log = logger.bind(job="recover_queued_digests", cutoff=cutoff.isoformat())
+    processing_cutoff = datetime.now(timezone.utc) - timedelta(
+        minutes=settings.PROCESSING_DIGEST_RECOVERY_AFTER_MINUTES
+    )
+    log = logger.bind(
+        job="recover_queued_digests",
+        queued_cutoff=queued_cutoff.isoformat(),
+        processing_cutoff=processing_cutoff.isoformat(),
+    )
 
     async with async_session() as session:
         result = await session.execute(
@@ -477,36 +492,79 @@ async def recover_queued_digests(ctx: dict) -> dict:
             .join(Briefing, Briefing.id == Digest.briefing_id)
             .where(
                 Digest.status == "queued",
-                Digest.created_at < cutoff,
+                Digest.created_at < queued_cutoff,
                 Briefing.active.is_(True),
             )
             .order_by(Digest.created_at.asc())
             .limit(50)
         )
-        queued_runs = result.all()
+        runs = [(digest, briefing, "queued") for digest, briefing in result.all()]
 
-    if not queued_runs:
+        processing_result = await session.execute(
+            select(Digest, Briefing)
+            .join(Briefing, Briefing.id == Digest.briefing_id)
+            .where(
+                Digest.status == "processing",
+                Briefing.active.is_(True),
+            )
+            .order_by(Digest.created_at.asc())
+            .limit(50)
+        )
+        for digest, briefing in processing_result.all():
+            latest_event_at = await session.scalar(
+                select(func.max(PipelineEvent.created_at)).where(
+                    PipelineEvent.digest_id == digest.id,
+                )
+            )
+            stale_reference = latest_event_at or digest.created_at
+            if not _is_before_cutoff(stale_reference, processing_cutoff):
+                continue
+
+            digest.status = "queued"
+            session.add(PipelineEvent(
+                digest_id=digest.id,
+                stage="queue",
+                status="queued",
+                error_msg=(
+                    "Recovered stale processing digest after worker restart"
+                ),
+                item_count=0,
+            ))
+            runs.append((digest, briefing, "processing"))
+
+        if any(original_status == "processing" for _, _, original_status in runs):
+            await session.commit()
+
+    if not runs:
         log.info("queue_recovery.none")
-        return {"requeued": 0}
+        return {"requeued": 0, "recovered_processing": 0}
 
     redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
     requeued = 0
+    recovered_processing = 0
     try:
-        for digest, briefing in queued_runs:
+        for digest, briefing, original_status in runs:
             try:
+                job_id = f"digest:{digest.id}"
+                if original_status == "processing":
+                    job_id = f"{job_id}:recovery"
                 job = await redis.enqueue_job(
                     "run_pipeline",
                     briefing.id,
                     digest.id,
-                    _job_id=f"digest:{digest.id}",
+                    _job_id=job_id,
                     _expires=timedelta(seconds=settings.ARQ_JOB_EXPIRES_SECONDS),
                 )
                 if job is not None:
                     requeued += 1
+                    if original_status == "processing":
+                        recovered_processing += 1
                     log.info(
                         "queue_recovery.requeued",
                         briefing_id=briefing.id,
                         digest_id=digest.id,
+                        original_status=original_status,
+                        job_id=job_id,
                     )
             except Exception as exc:
                 log.error(
@@ -518,7 +576,10 @@ async def recover_queued_digests(ctx: dict) -> dict:
     finally:
         await redis.close()
 
-    return {"requeued": requeued}
+    return {
+        "requeued": requeued,
+        "recovered_processing": recovered_processing,
+    }
 
 
 async def _get_owner_email(session, user_id: int) -> str:
@@ -600,8 +661,67 @@ async def _mark_digest_not_started(
     await session.commit()
 
 
+async def _retry_or_mark_stage_failed(
+    session,
+    digest: Digest,
+    digest_id: int,
+    stage: str,
+    duration_ms: int,
+    exc: Exception,
+    ctx: dict,
+) -> None:
+    settings = get_settings()
+    job_try = int((ctx or {}).get("job_try") or 1)
+    max_tries = max(1, int(getattr(settings, "ARQ_MAX_TRIES", 1)))
+
+    if isinstance(exc, LLMRetryableError) and job_try < max_tries:
+        defer_seconds = max(
+            1,
+            int(getattr(settings, "PIPELINE_RETRY_DEFER_SECONDS", 300)),
+        )
+        digest.status = "queued"
+        session.add(PipelineEvent(
+            digest_id=digest_id,
+            stage=stage,
+            status="retrying",
+            duration_ms=duration_ms,
+            error_msg=f"{exc} (attempt {job_try}/{max_tries})",
+        ))
+        await session.commit()
+        logger.warning(
+            "pipeline.stage_retrying",
+            digest_id=digest_id,
+            stage=stage,
+            attempt=job_try,
+            max_tries=max_tries,
+            defer_seconds=defer_seconds,
+            error=str(exc),
+        )
+        raise Retry(defer=defer_seconds)
+
+    session.add(PipelineEvent(
+        digest_id=digest_id,
+        stage=stage,
+        status="failed",
+        duration_ms=duration_ms,
+        error_msg=str(exc),
+    ))
+    digest.status = "failed"
+    await session.commit()
+
+
 def _emails_match(left: Optional[str], right: Optional[str]) -> bool:
     return (left or "").strip().lower() == (right or "").strip().lower()
+
+
+def _is_before_cutoff(value: Optional[datetime], cutoff: datetime) -> bool:
+    if value is None:
+        return False
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    return value < cutoff
 
 
 async def _try_lock_briefing_pipeline(session, briefing_id: int) -> bool:

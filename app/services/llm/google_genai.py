@@ -12,7 +12,7 @@ from app.config import get_settings
 logger = structlog.get_logger()
 
 DEFAULT_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash"]
-RETRYABLE_STATUS_CODES = {500, 503, 504}
+RETRYABLE_STATUS_CODES = {429, 500, 503, 504}
 
 
 class LLMGenerationError(RuntimeError):
@@ -21,6 +21,10 @@ class LLMGenerationError(RuntimeError):
 
 class LLMConfigurationError(LLMGenerationError):
     """Raised when the LLM provider cannot be configured."""
+
+
+class LLMRetryableError(LLMGenerationError):
+    """Raised when the provider failure is likely to succeed on a later retry."""
 
 
 @dataclass(frozen=True)
@@ -65,6 +69,7 @@ async def generate_json(
 
     genai, types = _import_google_genai()
     last_error = "All models failed"
+    last_retryable = False
 
     async with genai.Client(api_key=api_key).aio as aclient:
         for model in config.models:
@@ -97,6 +102,7 @@ async def generate_json(
                     status_code = _status_code(exc)
                     message = _error_message(exc)
                     last_error = f"{exc.__class__.__name__} on {model}: {message[:160]}"
+                    last_retryable = _is_retryable_llm_error(exc, status_code)
                     logger.warning(
                         "llm.generate_json.error",
                         call=config.log_name,
@@ -116,7 +122,10 @@ async def generate_json(
                         continue
                     break
 
-    raise LLMGenerationError(f"{config.log_name} failed: {last_error}")
+    error_message = f"{config.log_name} failed: {last_error}"
+    if last_retryable:
+        raise LLMRetryableError(error_message)
+    raise LLMGenerationError(error_message)
 
 
 def _structured_payload(response: Any) -> Any:
@@ -164,6 +173,14 @@ def _status_code(exc: Exception) -> Optional[int]:
     response = getattr(exc, "response", None)
     value = getattr(response, "status_code", None)
     return value if isinstance(value, int) else None
+
+
+def _is_retryable_llm_error(exc: Exception, status_code: Optional[int]) -> bool:
+    if status_code in RETRYABLE_STATUS_CODES:
+        return True
+    if isinstance(exc, LLMGenerationError) and not isinstance(exc, LLMConfigurationError):
+        return True
+    return False
 
 
 def _error_message(exc: Exception) -> str:

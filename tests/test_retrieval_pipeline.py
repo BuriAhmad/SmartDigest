@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from arq import Retry
 from fastapi import HTTPException
 
 from app.api.briefings import trigger_pipeline
@@ -14,9 +15,9 @@ from app.services.fetcher import fetch_articles
 from app.services.filters import FilterPipeline
 from app.services.filters.bm25 import BM25Filter
 from app.services.filters.llm_relevance import LLMRelevanceFilter, RelevanceScore
-from app.services.filters.semantic import SemanticRetriever
+from app.services.filters.semantic import SemanticRetriever, _MODEL_CACHE
 from app.services.intent import extract_all_keywords
-from app.services.llm import configured_models
+from app.services.llm import LLMRetryableError, configured_models
 from app.services.scrapers import build_default_registry
 from app.services.scrapers.hackernews import HackerNewsScraper
 from app.services.scrapers.rss_generic import GenericRSSScraper
@@ -96,6 +97,11 @@ class FakeSession:
             return FakeResult(self.execute_values.pop(0))
         return FakeResult(self.briefing)
 
+    async def scalar(self, _query):
+        if self.execute_values is not None:
+            return self.execute_values.pop(0)
+        return None
+
     def add(self, item):
         self.added.append(item)
 
@@ -154,6 +160,17 @@ class FailingFilterPipeline:
 
     async def run(self, articles):
         raise RuntimeError("LLM relevance scoring failed: HTTP 503 on gemini-2.5-flash-lite")
+
+
+class RetryableFilterPipeline:
+    def __init__(self, intent_context, keywords, exclusion_keywords, semantic_query=None):
+        self.intent_context = intent_context
+        self.keywords = keywords
+        self.exclusion_keywords = exclusion_keywords
+        self.semantic_query = semantic_query
+
+    async def run(self, articles):
+        raise LLMRetryableError("llm_relevance failed: provider temporarily unavailable")
 
 
 class FakeLLMFilter:
@@ -280,7 +297,7 @@ class RetrievalPipelineTests(unittest.IsolatedAsyncioTestCase):
         queued_digest.id = 303
         fake_session = FakeSession(
             briefing,
-            execute_values=[[(queued_digest, briefing)]],
+            execute_values=[[(queued_digest, briefing)], []],
         )
         fake_redis = FakeRedis()
 
@@ -290,6 +307,7 @@ class RetrievalPipelineTests(unittest.IsolatedAsyncioTestCase):
                  return_value=SimpleNamespace(
                      REDIS_URL="redis://test",
                      QUEUED_DIGEST_RECOVERY_AFTER_MINUTES=5,
+                     PROCESSING_DIGEST_RECOVERY_AFTER_MINUTES=30,
                      ARQ_JOB_EXPIRES_SECONDS=604800,
                  ),
              ), \
@@ -301,6 +319,50 @@ class RetrievalPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fake_redis.enqueue_args, ("run_pipeline", briefing.id, queued_digest.id))
         self.assertEqual(fake_redis.enqueue_kwargs["_job_id"], "digest:303")
         self.assertIn("_expires", fake_redis.enqueue_kwargs)
+        self.assertTrue(fake_redis.closed)
+
+    async def test_recovery_resets_stale_processing_digest_before_requeue(self):
+        briefing = make_briefing()
+        processing_digest = Digest(briefing_id=briefing.id, status="processing")
+        processing_digest.id = 404
+        processing_digest.created_at = datetime(2026, 6, 25, 9, 0, tzinfo=timezone.utc)
+        fake_session = FakeSession(
+            briefing,
+            execute_values=[
+                [],
+                [(processing_digest, briefing)],
+                datetime(2026, 6, 25, 9, 10, tzinfo=timezone.utc),
+            ],
+        )
+        fake_redis = FakeRedis()
+
+        with patch("app.services.scheduler.async_session", return_value=fake_session), \
+             patch(
+                 "app.services.scheduler.get_settings",
+                 return_value=SimpleNamespace(
+                     REDIS_URL="redis://test",
+                     QUEUED_DIGEST_RECOVERY_AFTER_MINUTES=5,
+                     PROCESSING_DIGEST_RECOVERY_AFTER_MINUTES=30,
+                     ARQ_JOB_EXPIRES_SECONDS=604800,
+                 ),
+             ), \
+             patch(
+                 "app.services.scheduler.datetime",
+                 wraps=datetime,
+             ) as dt_mock, \
+             patch("app.services.scheduler.RedisSettings.from_dsn", return_value="redis-settings"), \
+             patch("app.services.scheduler.create_pool", AsyncMock(return_value=fake_redis)):
+            dt_mock.now.return_value = datetime(2026, 6, 25, 10, 0, tzinfo=timezone.utc)
+            result = await recover_queued_digests({})
+
+        self.assertEqual(processing_digest.status, "queued")
+        self.assertEqual(result["requeued"], 1)
+        self.assertEqual(result["recovered_processing"], 1)
+        self.assertEqual(fake_redis.enqueue_args, ("run_pipeline", briefing.id, processing_digest.id))
+        self.assertEqual(fake_redis.enqueue_kwargs["_job_id"], "digest:404:recovery")
+        events = [item for item in fake_session.added if isinstance(item, PipelineEvent)]
+        self.assertIn(("queue", "queued"), [(event.stage, event.status) for event in events])
+        self.assertTrue(fake_session.committed)
         self.assertTrue(fake_redis.closed)
 
     async def test_scheduled_enqueue_catches_up_missed_daily_slot_with_queued_digest(self):
@@ -632,6 +694,86 @@ class RetrievalPipelineTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertTrue(failed_events)
         self.assertIn("LLM relevance scoring failed", failed_events[-1].error_msg)
+
+    async def test_scheduler_retries_transient_llm_filter_failure(self):
+        briefing = make_briefing()
+        fake_session = FakeSession(briefing)
+        article = {
+            "title": "AI safety regulation advances",
+            "url": "https://example.com/a",
+            "source_url": "https://example.com/rss",
+            "raw_content": "New model governance rules were published.",
+            "published_at": datetime(2026, 6, 11, tzinfo=timezone.utc),
+            "tags": ["AI"],
+        }
+
+        with patch("app.services.scheduler.async_session", return_value=fake_session), \
+             patch(
+                 "app.services.scheduler.get_settings",
+                 return_value=SimpleNamespace(
+                     ARQ_MAX_TRIES=4,
+                     PIPELINE_RETRY_DEFER_SECONDS=123,
+                 ),
+             ), \
+             patch("app.services.scheduler._get_owner_email", AsyncMock(return_value=briefing.email)), \
+             patch("app.services.scheduler._try_lock_briefing_pipeline", AsyncMock(return_value=True)), \
+             patch("app.services.scheduler._get_last_delivered_at", AsyncMock(return_value=None)), \
+             patch("app.services.scheduler.fetch_articles", AsyncMock(return_value=([article], 10))), \
+             patch("app.services.scheduler.FilterPipeline", RetryableFilterPipeline), \
+             patch("app.services.scheduler.summarise_articles", AsyncMock()) as summarise_mock, \
+             patch("app.services.scheduler.send_digest_email", AsyncMock()) as mail_mock, \
+             self.assertRaises(Retry):
+            await run_pipeline({"job_try": 1}, briefing.id)
+
+        digests = [item for item in fake_session.added if isinstance(item, Digest)]
+        self.assertEqual(digests[-1].status, "queued")
+        self.assertFalse(summarise_mock.called)
+        self.assertFalse(mail_mock.called)
+        events = [item for item in fake_session.added if isinstance(item, PipelineEvent)]
+        retrying_events = [
+            event for event in events
+            if event.stage == "filter" and event.status == "retrying"
+        ]
+        self.assertTrue(retrying_events)
+        self.assertIn("attempt 1/4", retrying_events[-1].error_msg)
+
+    async def test_scheduler_marks_retryable_llm_filter_failure_failed_on_final_try(self):
+        briefing = make_briefing()
+        fake_session = FakeSession(briefing)
+        article = {
+            "title": "AI safety regulation advances",
+            "url": "https://example.com/a",
+            "source_url": "https://example.com/rss",
+            "raw_content": "New model governance rules were published.",
+            "published_at": datetime(2026, 6, 11, tzinfo=timezone.utc),
+            "tags": ["AI"],
+        }
+
+        with patch("app.services.scheduler.async_session", return_value=fake_session), \
+             patch(
+                 "app.services.scheduler.get_settings",
+                 return_value=SimpleNamespace(
+                     ARQ_MAX_TRIES=4,
+                     PIPELINE_RETRY_DEFER_SECONDS=123,
+                 ),
+             ), \
+             patch("app.services.scheduler._get_owner_email", AsyncMock(return_value=briefing.email)), \
+             patch("app.services.scheduler._try_lock_briefing_pipeline", AsyncMock(return_value=True)), \
+             patch("app.services.scheduler._get_last_delivered_at", AsyncMock(return_value=None)), \
+             patch("app.services.scheduler.fetch_articles", AsyncMock(return_value=([article], 10))), \
+             patch("app.services.scheduler.FilterPipeline", RetryableFilterPipeline), \
+             patch("app.services.scheduler.summarise_articles", AsyncMock()) as summarise_mock, \
+             patch("app.services.scheduler.send_digest_email", AsyncMock()) as mail_mock:
+            result = await run_pipeline({"job_try": 4}, briefing.id)
+
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("provider temporarily unavailable", result["error"])
+        self.assertFalse(summarise_mock.called)
+        self.assertFalse(mail_mock.called)
+        digests = [item for item in fake_session.added if isinstance(item, Digest)]
+        self.assertEqual(digests[-1].status, "failed")
+        events = [item for item in fake_session.added if isinstance(item, PipelineEvent)]
+        self.assertIn(("filter", "failed"), [(event.stage, event.status) for event in events])
 
     async def test_scheduler_fails_without_email_when_summariser_fails(self):
         briefing = make_briefing()
@@ -1089,14 +1231,20 @@ class LLMProviderTests(unittest.IsolatedAsyncioTestCase):
         config = generate_mock.call_args.kwargs["config"]
         self.assertEqual(config.models, ["gemini-2.5-flash-lite", "gemini-2.5-flash"])
 
-    def test_worker_disables_implicit_arq_retries_for_digest_jobs(self):
+    def test_worker_enables_bounded_arq_retries_for_retryable_digest_failures(self):
         from worker import WorkerSettings
 
         self.assertGreaterEqual(WorkerSettings.job_timeout, 900)
-        self.assertEqual(WorkerSettings.max_tries, 1)
+        self.assertEqual(WorkerSettings.max_tries, 4)
 
 
 class SemanticRetrievalTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        _MODEL_CACHE.clear()
+
+    async def asyncTearDown(self):
+        _MODEL_CACHE.clear()
+
     async def test_semantic_retriever_scores_and_filters_with_injected_model(self):
         articles = [
             {
@@ -1122,6 +1270,67 @@ class SemanticRetrievalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([article["title"] for article in result], ["Frontier model oversight framework"])
         self.assertEqual(result[0]["semantic_rank"], 1)
         self.assertGreaterEqual(result[0]["semantic_score"], 0.5)
+
+    async def test_semantic_model_loader_resolves_cached_snapshot_for_local_only_mode(self):
+        constructed = []
+
+        class FakeSentenceTransformer:
+            def __init__(self, *args, **kwargs):
+                constructed.append((args, kwargs))
+
+        settings = SimpleNamespace(
+            SEMANTIC_MODEL_LOCAL_FILES_ONLY=True,
+            SEMANTIC_MODEL_LOAD_TIMEOUT_SECONDS=1.0,
+        )
+
+        with patch("app.config.get_settings", return_value=settings), \
+             patch(
+                 "huggingface_hub.snapshot_download",
+                 return_value="/tmp/cached-semantic-model",
+             ) as snapshot_mock, \
+             patch(
+                 "sentence_transformers.SentenceTransformer",
+                 FakeSentenceTransformer,
+             ):
+            retriever = SemanticRetriever(
+                query_text="AI governance",
+                model_name="sentence-transformers/test-model",
+            )
+            model = await retriever._load_model()
+
+        self.assertIsInstance(model, FakeSentenceTransformer)
+        snapshot_mock.assert_called_once_with(
+            repo_id="sentence-transformers/test-model",
+            local_files_only=True,
+        )
+        self.assertEqual(constructed, [(("/tmp/cached-semantic-model",), {})])
+
+    async def test_semantic_model_loader_fails_soft_when_local_cache_is_missing(self):
+        class FakeSentenceTransformer:
+            def __init__(self, *args, **kwargs):
+                raise AssertionError("model constructor should not run")
+
+        settings = SimpleNamespace(
+            SEMANTIC_MODEL_LOCAL_FILES_ONLY=True,
+            SEMANTIC_MODEL_LOAD_TIMEOUT_SECONDS=1.0,
+        )
+
+        with patch("app.config.get_settings", return_value=settings), \
+             patch(
+                 "huggingface_hub.snapshot_download",
+                 side_effect=RuntimeError("cache miss"),
+             ), \
+             patch(
+                 "sentence_transformers.SentenceTransformer",
+                 FakeSentenceTransformer,
+             ):
+            retriever = SemanticRetriever(
+                query_text="AI governance",
+                model_name="sentence-transformers/missing-model",
+            )
+            model = await retriever._load_model()
+
+        self.assertIsNone(model)
 
 
 if __name__ == "__main__":

@@ -57,8 +57,10 @@ class Settings(BaseSettings):
     GEMINI_SUMMARY_ARTICLE_MAX_CHARS: int = 1800
     ARQ_JOB_EXPIRES_SECONDS: int = 604800
     QUEUED_DIGEST_RECOVERY_AFTER_MINUTES: int = 5
+    PROCESSING_DIGEST_RECOVERY_AFTER_MINUTES: int = 30
     ARQ_JOB_TIMEOUT_SECONDS: int = 900
-    ARQ_MAX_TRIES: int = 1
+    ARQ_MAX_TRIES: int = 4
+    PIPELINE_RETRY_DEFER_SECONDS: int = 300
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

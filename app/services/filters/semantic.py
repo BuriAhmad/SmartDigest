@@ -2,6 +2,7 @@
 
 import asyncio
 import math
+import os
 import re
 from typing import Dict, Iterable, List, Optional, Pattern
 
@@ -107,25 +108,13 @@ class SemanticRetriever:
         from app.config import get_settings
 
         settings = get_settings()
-        kwargs = {}
-        if settings.SEMANTIC_MODEL_LOCAL_FILES_ONLY:
-            kwargs["local_files_only"] = True
-
         try:
             model = await asyncio.wait_for(
-                asyncio.to_thread(SentenceTransformer, self.model_name, **kwargs),
-                timeout=settings.SEMANTIC_MODEL_LOAD_TIMEOUT_SECONDS,
-            )
-        except TypeError as exc:
-            if settings.SEMANTIC_MODEL_LOCAL_FILES_ONLY:
-                logger.warning(
-                    "semantic.model_load_failed",
-                    model_name=self.model_name,
-                    error=str(exc),
-                )
-                return None
-            model = await asyncio.wait_for(
-                asyncio.to_thread(SentenceTransformer, self.model_name),
+                asyncio.to_thread(
+                    self._build_sentence_transformer,
+                    SentenceTransformer,
+                    settings.SEMANTIC_MODEL_LOCAL_FILES_ONLY,
+                ),
                 timeout=settings.SEMANTIC_MODEL_LOAD_TIMEOUT_SECONDS,
             )
         except Exception as exc:
@@ -138,6 +127,35 @@ class SemanticRetriever:
 
         _MODEL_CACHE[self.model_name] = model
         return model
+
+    def _build_sentence_transformer(
+        self,
+        sentence_transformer_cls,
+        local_files_only: bool,
+    ) -> object:
+        model_source = self._resolve_model_source(local_files_only)
+        return sentence_transformer_cls(model_source)
+
+    def _resolve_model_source(self, local_files_only: bool) -> str:
+        if not local_files_only or os.path.isdir(self.model_name):
+            return self.model_name
+
+        try:
+            from huggingface_hub import snapshot_download
+        except Exception as exc:
+            raise RuntimeError(
+                "huggingface_hub is required for cache-only semantic model loading"
+            ) from exc
+
+        try:
+            return snapshot_download(
+                repo_id=self.model_name,
+                local_files_only=True,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Semantic model is not available in the local cache: {self.model_name}"
+            ) from exc
 
     def _is_excluded(self, article: Dict) -> bool:
         haystack = " ".join([
