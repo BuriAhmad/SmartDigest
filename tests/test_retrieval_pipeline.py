@@ -1,3 +1,4 @@
+import sys
 import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -15,7 +16,8 @@ from app.services.fetcher import fetch_articles
 from app.services.filters import FilterPipeline
 from app.services.filters.bm25 import BM25Filter
 from app.services.filters.llm_relevance import LLMRelevanceFilter, RelevanceScore
-from app.services.filters.semantic import SemanticRetriever, _MODEL_CACHE
+from app.services.filters.reranker import CrossEncoderReranker, _MODEL_CACHE as RERANKER_MODEL_CACHE
+from app.services.filters.semantic import SemanticRetriever, _MODEL_CACHE as SEMANTIC_MODEL_CACHE
 from app.services.intent import extract_all_keywords
 from app.services.llm import LLMRetryableError, configured_models
 from app.services.scrapers import build_default_registry
@@ -188,6 +190,39 @@ class StaticSemanticFilter:
 
     async def retrieve(self, _articles):
         return self.articles
+
+
+class StaticReranker:
+    def __init__(self, articles=None):
+        self.articles = articles
+        self.seen_articles = None
+
+    async def rerank(self, articles):
+        self.seen_articles = articles
+        return self.articles if self.articles is not None else articles
+
+
+class FakeCrossEncoderModel:
+    def __init__(self, scores):
+        self.scores = scores
+        self.seen_pairs = None
+        self.seen_batch_size = None
+
+    def predict(self, pairs, batch_size=32, show_progress_bar=False):
+        self.seen_pairs = pairs
+        self.seen_batch_size = batch_size
+        return self.scores
+
+
+def _version_tuple(value):
+    parts = []
+    for part in value.split("."):
+        digits = "".join(char for char in part if char.isdigit())
+        if digits:
+            parts.append(int(digits))
+        if len(parts) == 3:
+            break
+    return tuple(parts)
 
 
 class FakeRedis:
@@ -1049,6 +1084,7 @@ class FilterPipelineTests(unittest.IsolatedAsyncioTestCase):
         fake_llm = FakeLLMFilter()
         pipeline.llm_filter = fake_llm
         pipeline.semantic_filter = StaticSemanticFilter([])
+        pipeline.reranker = StaticReranker()
 
         result = await pipeline.run(articles)
 
@@ -1078,6 +1114,7 @@ class FilterPipelineTests(unittest.IsolatedAsyncioTestCase):
         fake_llm = FakeLLMFilter()
         pipeline.llm_filter = fake_llm
         pipeline.semantic_filter = StaticSemanticFilter([semantic_article])
+        pipeline.reranker = StaticReranker()
 
         result = await pipeline.run([lexical_article, semantic_article])
 
@@ -1105,6 +1142,7 @@ class FilterPipelineTests(unittest.IsolatedAsyncioTestCase):
         fake_llm = FakeLLMFilter()
         pipeline.llm_filter = fake_llm
         pipeline.semantic_filter = StaticSemanticFilter([article])
+        pipeline.reranker = StaticReranker()
 
         await pipeline.run([article])
 
@@ -1129,12 +1167,142 @@ class FilterPipelineTests(unittest.IsolatedAsyncioTestCase):
             exclusion_keywords=[],
         )
         pipeline.semantic_filter = StaticSemanticFilter([])
+        pipeline.reranker = StaticReranker()
         pipeline.llm_filter.score_and_filter = AsyncMock(
             side_effect=RuntimeError("LLM relevance scoring failed: HTTP 503")
         )
 
         with self.assertRaisesRegex(RuntimeError, "LLM relevance scoring failed"):
             await pipeline.run(articles)
+
+    async def test_reranker_reduces_union_before_llm_relevance(self):
+        articles = [
+            {
+                "title": f"AI safety governance update {index}",
+                "url": f"https://example.com/{index}",
+                "raw_content": "AI safety policy model governance regulation",
+                "tags": ["AI"],
+            }
+            for index in range(12)
+        ]
+        pipeline = FilterPipeline(
+            intent_context="Track AI safety governance",
+            keywords=["AI safety", "model governance"],
+            exclusion_keywords=[],
+        )
+        fake_llm = FakeLLMFilter()
+        reranked = articles[:5]
+        fake_reranker = StaticReranker(reranked)
+        pipeline.llm_filter = fake_llm
+        pipeline.semantic_filter = StaticSemanticFilter([])
+        pipeline.reranker = fake_reranker
+
+        result = await pipeline.run(articles)
+
+        self.assertEqual(len(fake_reranker.seen_articles), 12)
+        self.assertEqual(fake_llm.seen_articles, reranked)
+        self.assertEqual(result, reranked)
+
+
+class RerankerTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        RERANKER_MODEL_CACHE.clear()
+
+    async def asyncTearDown(self):
+        RERANKER_MODEL_CACHE.clear()
+
+    async def test_reranker_scores_sorts_and_passes_small_batches(self):
+        articles = [
+            {"title": "Borderline AI policy", "raw_content": "Some governance discussion."},
+            {"title": "Strong AI governance", "raw_content": "Frontier model safety rules."},
+            {"title": "Unrelated sports", "raw_content": "Fixture list and match preview."},
+        ]
+        model = FakeCrossEncoderModel([1.0, 5.0, -3.0])
+        reranker = CrossEncoderReranker(
+            query_text="AI safety governance",
+            model=model,
+            min_keep=5,
+            top_k=10,
+        )
+
+        result = await reranker.rerank(articles)
+
+        self.assertEqual(
+            [article["title"] for article in result],
+            ["Strong AI governance", "Borderline AI policy", "Unrelated sports"],
+        )
+        self.assertEqual([article["reranker_rank"] for article in result], [1, 2, 3])
+        self.assertEqual(model.seen_batch_size, 8)
+
+    async def test_reranker_applies_score_threshold_only_after_min_keep(self):
+        articles = [
+            {"title": f"Article {index}", "raw_content": "AI policy update"}
+            for index in range(7)
+        ]
+        model = FakeCrossEncoderModel([10.0, 9.0, 8.0, 2.0, 1.0, -4.0, -5.0])
+        reranker = CrossEncoderReranker(
+            query_text="AI safety governance",
+            model=model,
+            min_keep=3,
+            top_k=6,
+            min_score=0.0,
+        )
+
+        result = await reranker.rerank(articles)
+
+        self.assertEqual([article["title"] for article in result], [
+            "Article 0",
+            "Article 1",
+            "Article 2",
+            "Article 3",
+            "Article 4",
+        ])
+
+    async def test_reranker_applies_relative_score_drop_after_min_keep(self):
+        articles = [
+            {"title": f"Article {index}", "raw_content": "AI policy update"}
+            for index in range(5)
+        ]
+        model = FakeCrossEncoderModel([10.0, 9.0, 8.0, 5.0, 1.0])
+        reranker = CrossEncoderReranker(
+            query_text="AI safety governance",
+            model=model,
+            min_keep=2,
+            top_k=5,
+            max_score_drop=3.0,
+        )
+
+        result = await reranker.rerank(articles)
+
+        self.assertEqual([article["title"] for article in result], [
+            "Article 0",
+            "Article 1",
+            "Article 2",
+        ])
+
+    async def test_required_reranker_failure_is_explicit(self):
+        reranker = CrossEncoderReranker(
+            query_text="AI safety governance",
+            enabled=True,
+            required=True,
+        )
+        with patch.object(reranker, "_load_model", AsyncMock(return_value=None)):
+            with self.assertRaisesRegex(RuntimeError, "Reranker model unavailable"):
+                await reranker.rerank([
+                    {"title": "AI safety update", "raw_content": "Governance rules"}
+                ])
+
+
+class RuntimeCompatibilityTests(unittest.TestCase):
+    def test_python_runtime_matches_documented_minimum(self):
+        self.assertGreaterEqual(sys.version_info[:2], (3, 11))
+
+    def test_ml_dependency_versions_support_ettin_reranker(self):
+        import sentence_transformers
+        import transformers
+
+        self.assertGreaterEqual(_version_tuple(sentence_transformers.__version__), (5, 6, 0))
+        self.assertGreaterEqual(_version_tuple(transformers.__version__), (5, 12, 1))
 
 
 class SummariserResilienceTests(unittest.IsolatedAsyncioTestCase):
@@ -1240,10 +1408,10 @@ class LLMProviderTests(unittest.IsolatedAsyncioTestCase):
 
 class SemanticRetrievalTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        _MODEL_CACHE.clear()
+        SEMANTIC_MODEL_CACHE.clear()
 
     async def asyncTearDown(self):
-        _MODEL_CACHE.clear()
+        SEMANTIC_MODEL_CACHE.clear()
 
     async def test_semantic_retriever_scores_and_filters_with_injected_model(self):
         articles = [

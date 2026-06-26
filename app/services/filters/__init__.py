@@ -1,4 +1,4 @@
-"""Filter pipeline — runs articles through hybrid retrieval + LLM relevance.
+"""Filter pipeline — runs articles through retrieval, reranking, and LLM relevance.
 
 Usage:
     pipeline = FilterPipeline(intent_context, keywords, exclusion_keywords)
@@ -12,13 +12,14 @@ import structlog
 from app.config import get_settings
 from app.services.filters.bm25 import BM25Filter
 from app.services.filters.llm_relevance import LLMRelevanceFilter
+from app.services.filters.reranker import CrossEncoderReranker
 from app.services.filters.semantic import SemanticRetriever
 
 logger = structlog.get_logger()
 
 
 class FilterPipeline:
-    """Hybrid retriever: BM25 + semantic union → LLM relevance scoring."""
+    """Hybrid retriever: BM25 + semantic union -> reranker -> LLM relevance."""
 
     def __init__(
         self,
@@ -35,6 +36,7 @@ class FilterPipeline:
         semantic_query_text = (semantic_query or intent_context)[
             : settings.SEMANTIC_QUERY_MAX_CHARS
         ]
+        reranker_query_text = semantic_query_text
         self.lexical_filter = BM25Filter(
             keywords=keywords,
             exclusion_keywords=exclusion_keywords or [],
@@ -49,6 +51,20 @@ class FilterPipeline:
             min_score=settings.SEMANTIC_MIN_SCORE,
             article_max_chars=settings.SEMANTIC_ARTICLE_MAX_CHARS,
             enabled=settings.SEMANTIC_RETRIEVAL_ENABLED,
+        )
+        self.reranker = CrossEncoderReranker(
+            query_text=reranker_query_text,
+            model_name=settings.RERANKER_MODEL_NAME,
+            top_k=settings.RERANKER_TOP_K,
+            min_keep=settings.RERANKER_MIN_KEEP,
+            min_score=settings.RERANKER_MIN_SCORE,
+            max_score_drop=settings.RERANKER_MAX_SCORE_DROP,
+            article_max_chars=settings.RERANKER_ARTICLE_MAX_CHARS,
+            batch_size=settings.RERANKER_BATCH_SIZE,
+            enabled=settings.RERANKER_ENABLED,
+            required=settings.RERANKER_REQUIRED,
+            local_files_only=settings.RERANKER_MODEL_LOCAL_FILES_ONLY,
+            load_timeout_seconds=settings.RERANKER_MODEL_LOAD_TIMEOUT_SECONDS,
         )
         self.llm_filter = LLMRelevanceFilter(
             intent_context=intent_context,
@@ -65,6 +81,8 @@ class FilterPipeline:
           - semantic_score: cosine similarity from semantic retrieval
           - retrieval_score: combined pre-LLM retrieval score
           - retrieval_channels: bm25/semantic channels that retrieved it
+          - reranker_score: cross-encoder relevance score
+          - reranker_rank: cross-encoder rank before LLM relevance
           - llm_relevance_score: int 1-10 (only if it passed retrieval)
           - llm_relevance_reason: str (only if it passed retrieval)
         """
@@ -90,14 +108,27 @@ class FilterPipeline:
             log.warning("filter.all_dropped_by_retrieval")
             return []
 
-        # Stage 2: LLM relevance scoring
+        # Stage 2: Cross-encoder reranking
+        reranked_articles = await self.reranker.rerank(retrieval_passed)
+        log.info(
+            "filter.reranker_done",
+            input=len(retrieval_passed),
+            passed=len(reranked_articles),
+            dropped=len(retrieval_passed) - len(reranked_articles),
+        )
+
+        if not reranked_articles:
+            log.warning("filter.all_dropped_by_reranker")
+            return []
+
+        # Stage 3: LLM relevance scoring
         try:
-            llm_passed = await self.llm_filter.score_and_filter(retrieval_passed)
+            llm_passed = await self.llm_filter.score_and_filter(reranked_articles)
             log.info(
                 "filter.llm_done",
-                input=len(retrieval_passed),
+                input=len(reranked_articles),
                 passed=len(llm_passed),
-                dropped=len(retrieval_passed) - len(llm_passed),
+                dropped=len(reranked_articles) - len(llm_passed),
             )
         except Exception as exc:
             log.error("filter.llm_failed", error=str(exc))
