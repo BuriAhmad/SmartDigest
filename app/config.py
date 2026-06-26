@@ -2,9 +2,52 @@
 
 from functools import lru_cache
 from typing import Any, Dict
+from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+
+def normalise_database_url(database_url: str) -> str:
+    """Convert platform Postgres URLs to SQLAlchemy's asyncpg dialect."""
+    if database_url.startswith("postgresql://"):
+        return database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if database_url.startswith("postgres://"):
+        return database_url.replace("postgres://", "postgresql+asyncpg://", 1)
+    return database_url
+
+
+def prepare_asyncpg_database_url(database_url: str) -> tuple[str, dict[str, Any]]:
+    """Return a SQLAlchemy asyncpg URL plus driver connect args.
+
+    asyncpg does not accept libpq-style sslmode query parameters. Neon emits
+    `sslmode=require`, so translate that URL flag to asyncpg's native `ssl`.
+    """
+    normalised_url = normalise_database_url(database_url)
+    parsed = urlsplit(normalised_url)
+    if not parsed.scheme.endswith("+asyncpg"):
+        return normalised_url, {}
+
+    connect_args: dict[str, Any] = {}
+    filtered_query: list[tuple[str, str]] = []
+
+    for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+        if key != "sslmode":
+            filtered_query.append((key, value))
+            continue
+
+        sslmode = value.lower()
+        if sslmode == "disable":
+            connect_args["ssl"] = False
+        elif sslmode in {"allow", "prefer", "require", "verify-ca", "verify-full"}:
+            connect_args["ssl"] = True
+        else:
+            filtered_query.append((key, value))
+
+    prepared_url = urlunsplit(
+        parsed._replace(query=urlencode(filtered_query, doseq=True))
+    )
+    return prepared_url, connect_args
 
 
 class Settings(BaseSettings):
@@ -73,17 +116,30 @@ class Settings(BaseSettings):
     ARQ_JOB_TIMEOUT_SECONDS: int = 900
     ARQ_MAX_TRIES: int = 4
     PIPELINE_RETRY_DEFER_SECONDS: int = 300
+    ALLOW_INSECURE_PRODUCTION_REDIS: bool = False
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @model_validator(mode="after")
-    def fix_database_url(self) -> "Settings":
-        """Convert standard postgres:// URLs (from Railway) to asyncpg format."""
-        if self.DATABASE_URL.startswith("postgresql://"):
-            self.DATABASE_URL = self.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
-        elif self.DATABASE_URL.startswith("postgres://"):
-            self.DATABASE_URL = self.DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+    def normalise_and_validate_urls(self) -> "Settings":
+        """Normalise DB URLs and block unsafe production Redis defaults."""
+        self.DATABASE_URL = normalise_database_url(self.DATABASE_URL)
+        if self.is_production:
+            self._validate_production_redis_url()
         return self
+
+    def _validate_production_redis_url(self) -> None:
+        parsed = urlparse(self.REDIS_URL)
+        local_hosts = {"localhost", "127.0.0.1", "::1", ""}
+        if parsed.scheme not in {"redis", "rediss"}:
+            raise ValueError("REDIS_URL must use redis:// or rediss://")
+        if parsed.hostname in local_hosts:
+            raise ValueError("Production REDIS_URL must not point at local Redis")
+        if parsed.scheme != "rediss" and not self.ALLOW_INSECURE_PRODUCTION_REDIS:
+            raise ValueError(
+                "Production REDIS_URL should use rediss:// for TLS; set "
+                "ALLOW_INSECURE_PRODUCTION_REDIS=true only for an intentional exception"
+            )
 
     @property
     def is_production(self) -> bool:

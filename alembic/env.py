@@ -2,14 +2,18 @@ import asyncio
 import os
 from logging.config import fileConfig
 
+from dotenv import load_dotenv
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
+load_dotenv()
+
 # Import all models so Alembic can detect them for autogenerate
 from app.models import *  # noqa: F401, F403
+from app.config import normalise_database_url, prepare_asyncpg_database_url
 from app.database import Base
 
 # This is the Alembic Config object
@@ -32,11 +36,7 @@ def get_url() -> str:
         "DATABASE_URL",
         config.get_main_option("sqlalchemy.url", ""),
     )
-    if url.startswith("postgresql://"):
-        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    elif url.startswith("postgres://"):
-        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
-    return url
+    return normalise_database_url(url)
 
 
 def run_migrations_offline() -> None:
@@ -76,12 +76,14 @@ async def run_async_migrations() -> None:
 
     """
     # Override the URL from environment so Railway's DATABASE_URL is used
-    config.set_main_option("sqlalchemy.url", get_url())
+    database_url, connect_args = prepare_asyncpg_database_url(get_url())
+    config.set_main_option("sqlalchemy.url", database_url)
 
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
 
     async with connectable.connect() as connection:

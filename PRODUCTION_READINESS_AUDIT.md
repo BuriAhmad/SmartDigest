@@ -1,105 +1,142 @@
 # SmartDigest Production Readiness Audit
 
-Audit date: 2026-06-25
+Audit date: 2026-06-26
 
-Scope: planning and audit only. No application code, schema, migration, config, Docker, or existing documentation changes were made as part of this audit. The repository already had uncommitted code changes before this audit; this document describes the current working tree as inspected.
+Scope: production readiness audit plus the current Upstash Redis and Neon Postgres readiness updates. This pass updated local-only environment wiring, documentation, safe environment examples, smoke-test scripts, narrowly scoped production Redis validation, and Neon asyncpg SSL handling. It did not create Docker files, Cloud Run files, queue architecture changes, worker behavior changes, or web startup migration commands.
 
-## Current repo understanding
+Current verification performed:
+
+- Inspected repo structure with `rg --files`, `find app`, and targeted reads of app, worker, migration, template, and deployment-related files.
+- Confirmed local venv runtime with `env PYTHONPYCACHEPREFIX=/private/tmp/smartdigest-pycache .venv/bin/python --version`: Python 3.11.14.
+- Introspected FastAPI routes from `app.main:app`; no `/healthz` or `/readyz` route exists.
+- Ran `env PYTHONPYCACHEPREFIX=/private/tmp/smartdigest-pycache .venv/bin/python -m unittest tests.test_retrieval_pipeline`: 49 tests passed.
+- Ran `env PYTHONPYCACHEPREFIX=/private/tmp/smartdigest-pycache .venv/bin/python scripts/smoke_redis.py`: Upstash `rediss://` parsed through ARQ with SSL enabled, Redis `PING` succeeded, and short-lived `SET`/`GET` succeeded.
+- Ran production Redis config validation sanity checks: local/default Redis and non-TLS production Redis are rejected unless the explicit override is set.
+- Ran `env PYTHONPYCACHEPREFIX=/private/tmp/smartdigest-pycache .venv/bin/python scripts/smoke_db.py`: Neon direct host connected through SQLAlchemy asyncpg after translating `sslmode=require` to asyncpg `ssl=True`.
+- Ran `env PYTHONPYCACHEPREFIX=/private/tmp/smartdigest-pycache .venv/bin/python -m alembic upgrade head` against Neon: migrations completed through `e5f6a7b8c9d0`.
+- Ran `env PYTHONPYCACHEPREFIX=/private/tmp/smartdigest-pycache .venv/bin/python -m app.cli seed_sources` against Neon: seeded 10 curated sources.
+- Ran `env PYTHONPYCACHEPREFIX=/private/tmp/smartdigest-pycache .venv/bin/python scripts/smoke_db.py --check-tables`: core tables exist and 10 curated sources are present.
+- Checked `.env` tracking risk with `git ls-files .env --error-unmatch`: `.env` is not tracked. The local `.env` contains keys for `GEMINI_API_KEY`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `DATABASE_URL`, `REDIS_URL`, and `ENV`, but values are intentionally not repeated here.
+
+## Current Repo Understanding
 
 SmartDigest is a small FastAPI web app with server-rendered Jinja2/HTMX pages. There is no separate frontend build or frontend server in the current repository.
 
-The app lets authenticated users create briefings, fetches articles from curated RSS-like sources, filters candidates with BM25 plus optional semantic retrieval, scores them with Gemini through a shared LLM layer, summarises surviving articles, stores digest state in PostgreSQL, and delivers email through Resend.
+The app lets authenticated users create content briefings, select curated RSS-like sources, fetch articles, filter candidates with BM25 plus optional semantic retrieval and cross-encoder reranking, score relevance with Gemini through a shared LLM layer, summarise surviving articles, store digest state in PostgreSQL, and deliver emails through Resend.
 
-The durable state is PostgreSQL. Redis is used as the ARQ queue transport. The web process enqueues digest jobs; the worker process performs the long-running fetch/filter/summarise/deliver pipeline and also runs ARQ cron jobs for scheduled digest enqueueing and queue recovery.
+Durable state lives in PostgreSQL. Redis is used as the ARQ queue transport. The web process enqueues digest jobs; the worker process performs the long-running fetch/filter/summarise/deliver pipeline and also runs ARQ cron jobs for scheduled digest enqueueing and queue recovery.
 
-Important files:
+Important files and modules:
 
-- `app/main.py`: FastAPI app factory, middleware, router registration, HTML routes, Jinja template setup, startup lifespan.
+- `app/main.py`: FastAPI app factory, middleware, router registration, Jinja template setup, HTML routes, startup lifespan.
 - `app/config.py`: Pydantic settings and environment variable defaults.
 - `app/database.py`: SQLAlchemy async engine and session dependency.
 - `worker.py`: ARQ worker entrypoint and cron registration.
-- `app/services/scheduler.py`: full digest pipeline, scheduled enqueueing, recovery, advisory lock.
+- `app/services/scheduler.py`: full digest pipeline, scheduled enqueueing, queue recovery, advisory lock.
 - `app/api/briefings.py`: briefing CRUD and manual ARQ enqueue endpoint.
 - `app/api/jobs.py`: job-status endpoint using Postgres digest state plus ARQ Redis keys.
 - `app/api/auth.py`, `app/services/auth.py`, `app/middleware/auth.py`: Firebase token exchange, app JWT session cookie, request authentication.
 - `app/services/llm/google_genai.py`: Gemini provider adapter using `google-genai`.
-- `app/services/filters/llm_relevance.py`, `app/services/summariser.py`: Gemini call sites.
+- `app/services/filters/__init__.py`, `app/services/filters/semantic.py`, `app/services/filters/reranker.py`, `app/services/filters/llm_relevance.py`: retrieval, reranking, and LLM relevance pipeline.
+- `app/services/summariser.py`: Gemini summarisation call site.
+- `app/services/mailer.py`: Resend email delivery, with dev-mode logging fallback.
 - `alembic/`: version-controlled database migrations.
 - `templates/`: server-rendered UI templates.
 - `Procfile`, `railway.toml`, `railway.worker.toml`, `services/web/railway.toml`, `services/worker/railway.toml`: existing Railway-oriented deployment references.
 - `requirements.txt`: Python dependencies.
 
-## Existing architecture summary
+## Existing Architecture Summary
 
 Runtime services:
 
-- Web: `uvicorn app.main:app --host 0.0.0.0 --port $PORT` in `Procfile` and Railway config.
-- Worker: `python worker.py`.
+- Web: FastAPI/Uvicorn using `app.main:app`.
+- Worker: ARQ worker using `python worker.py`.
 - Database: async SQLAlchemy using `postgresql+asyncpg`.
 - Migrations: Alembic, async-configured, reading `DATABASE_URL`.
 - Queue: ARQ over Redis using `RedisSettings.from_dsn(settings.REDIS_URL)`.
-- Auth: Firebase client SDK in templates exchanges Firebase ID token at `/auth/firebase/session`; backend verifies with Firebase Admin SDK and sets an httpOnly `sd_session` JWT cookie.
+- Auth: Firebase browser SDK in templates exchanges Firebase ID tokens at `/auth/firebase/session`; backend verifies with Firebase Admin SDK and sets an httpOnly `sd_session` JWT cookie.
 - LLM: shared Google GenAI adapter. New config names are `LLM_*`; legacy `GEMINI_*` names still exist.
-- Email: Resend via `app/services/mailer.py`; if `RESEND_API_KEY` is absent, the mailer logs and returns success as dev mode.
-- UI: server-rendered templates, external CDN imports for Firebase JS SDK, HTMX, and Google Fonts.
+- Email: Resend via `app/services/mailer.py`; if `RESEND_API_KEY` is absent, mailer logs and returns success as dev mode.
+- UI: Jinja2 templates with inline CSS and CDN imports for Firebase JS SDK, HTMX, and Google Fonts.
 
-## Target production architecture
+Existing deployment hints:
 
-Recommended target for first Cloud Run deployment:
+- `Procfile`: `web: uvicorn app.main:app --host 0.0.0.0 --port $PORT` and `worker: python worker.py`.
+- `services/web/railway.toml`: starts Uvicorn on `$PORT` and runs `alembic upgrade head && python -m app.cli seed_sources` as Railway pre-deploy.
+- `services/worker/railway.toml`: starts `python worker.py`.
+- No Dockerfile, `.dockerignore`, Cloud Run service config, or Cloud Build config exists in the current checkout.
 
-- Cloud Run web service: FastAPI/Uvicorn serving HTML and API routes.
-- Separate worker runtime for ARQ jobs:
-  - Preferred with current code shape: a long-running Cloud Run worker service, but only after adding a small HTTP health listener/wrapper because Cloud Run services must listen on `$PORT`.
-  - Alternative: a finite Cloud Run Job only if a later code change adds a bounded "drain queued jobs and exit" worker command. The current `python worker.py` is long-running and is not a natural finite job.
-- Neon Postgres: schema created by Alembic only; no local data migration needed.
-- Upstash Redis: Redis protocol URL, preferably `rediss://...`, used by ARQ and job-status checks.
-- Firebase Auth: production project or confirmed existing project, authorized Cloud Run/custom domains, backend service account configured through Secret Manager.
-- Gemini API: API key in Secret Manager, injected as `LLM_API_KEY`.
-- Resend: required for actual digest email delivery, even though it was not listed in the target architecture prompt.
+## Target Production Architecture
 
-## Findings by area
+Recommended first production architecture:
 
-### 1. Application entrypoint and runtime
+- Google Cloud Run web service running FastAPI/Uvicorn.
+- Separate Cloud Run worker runtime for ARQ jobs.
+- Neon Postgres for production database. Current Neon database: provider Neon, region AWS US East 2 / Ohio, database `neondb`, direct host `ep-proud-poetry-ajc5pujb.c-3.us-east-2.aws.neon.tech`, SSL required, direct connection selected for first deployment validation.
+- Upstash Redis has been selected for ARQ queue transport.
+- Firebase Auth for browser authentication.
+- Gemini API through the existing shared LLM layer.
+- Resend for digest email delivery, because the current repo uses Resend for mail.
+- Google Secret Manager for secrets, injected as environment variables or secret-mounted files.
+- Alembic for schema setup and future version-controlled schema changes.
 
-What is good:
+Current best worker shape:
 
-- FastAPI entrypoint is clear: `app.main:app`.
-- App factory is `create_app()` in `app/main.py`, with `app = create_app()` at module bottom.
-- Existing web command binds to `0.0.0.0` and `$PORT` in `Procfile`, `railway.toml`, and `services/web/railway.toml`.
-- Templates are loaded from the repo root `templates` directory via `Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))`.
-- No separate frontend server was found.
-- No app file-upload/local-storage feature was found.
+- The current `python worker.py` process is long-running and does not listen on `$PORT`.
+- A plain Cloud Run service must listen on `$PORT`, so the worker is not directly Cloud Run service-ready yet.
+- Best minimal future implementation: one worker container/service that starts a tiny HTTP health listener plus the ARQ worker, with min instances set to 1 and CPU always allocated.
+- Alternative later: a Cloud Run Job only if a future command is added that processes due/queued work in a bounded way and exits cleanly. The current ARQ worker is not that shape.
+
+## Findings By Area
+
+### 1. Application Entrypoint And Runtime
+
+What is already good:
+
+- FastAPI app entrypoint is clear: `app.main:app`.
+- `app/main.py` defines `create_app()` and `app = create_app()`.
+- Existing web deployment references bind to Cloud Run's required network shape: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+- Templates are loaded from the repository root `templates` directory using `Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))`.
+- No separate frontend server or frontend build step was found.
+- No persistent file upload/local storage feature was found.
+- The app can run as a same-origin server-rendered web app, which fits one Cloud Run web service.
 
 Gaps and risks:
 
-- No Dockerfile exists.
-- The production web command should add proxy handling for Cloud Run, for example: `uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --proxy-headers --forwarded-allow-ips='*'`.
-- No lightweight health endpoint exists. `/` is public, but it renders a template and may redirect authenticated users. A simple unauthenticated `/healthz` endpoint would be better for Cloud Run checks and monitoring.
-- `worker.py` does not bind to `$PORT`. A plain `python worker.py` Cloud Run service will not satisfy Cloud Run's service contract unless wrapped with an HTTP listener.
-- Runtime Python is inconsistent: the local virtualenv is Python 3.9.6, while `README.md` says Python 3.11+. Pick and test one production Python version before building.
-- Localhost-only defaults exist in `app/config.py`: local Postgres, local Redis, Firebase service account path under `~/.config/...`.
+- No dedicated `/healthz` endpoint exists.
+- Existing command does not include proxy header flags. Cloud Run terminates HTTPS before the container, so the production command should include proxy handling, for example `uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --proxy-headers --forwarded-allow-ips='*'`.
+- `SessionAuthMiddleware` excludes `/static`, but there is no `StaticFiles` mount. That is fine if there are no local static assets, but future static files will need an explicit mount.
+- The UI depends on external CDNs at runtime: Firebase browser SDK, HTMX, and Google Fonts.
+- Localhost defaults exist in `app/config.py` for Postgres, Redis, and Firebase service account path.
+- `worker.py` does not bind to `$PORT`; it cannot be deployed as a standard Cloud Run service without a wrapper/listener.
 
-### 2. Environment variables and secrets
+Production command recommendation:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --proxy-headers --forwarded-allow-ips='*'
+```
+
+### 2. Environment Variables And Secrets
 
 Config source: `app/config.py`.
 
-Production-required variables:
+Required production environment variables:
 
 - `ENV=production`
-- `DATABASE_URL`: Neon Postgres URL, adapted for SQLAlchemy asyncpg.
-- `REDIS_URL`: Upstash Redis protocol URL, preferably `rediss://default:<password>@<host>:<port>`.
-- `LLM_API_KEY`: Gemini API key. Legacy `GEMINI_API_KEY` still works, but new production config should use `LLM_API_KEY`.
-- `JWT_SECRET`: high-entropy app session signing secret. Do not use the default `dev-secret-change-in-production-abc123`.
-- `FIREBASE_SERVICE_ACCOUNT_JSON`: Firebase Admin service account JSON as a Secret Manager secret, or a secret-mounted file plus `FIREBASE_SERVICE_ACCOUNT_PATH`.
+- `DATABASE_URL`: Neon Postgres connection string.
+- `REDIS_URL`: Upstash Redis protocol URL, preferably TLS with `rediss://`. For this repo, this is the only Upstash Redis credential the app needs.
+- `LLM_API_KEY`: Gemini API key. `GEMINI_API_KEY` still works as a legacy fallback, but new production config should use `LLM_API_KEY`.
+- `JWT_SECRET`: high-entropy session signing secret. Do not use the default in `app/config.py`.
+- `FIREBASE_SERVICE_ACCOUNT_JSON` or `FIREBASE_SERVICE_ACCOUNT_PATH`: Firebase Admin credential for backend token verification.
 - `FIREBASE_WEB_API_KEY`
 - `FIREBASE_WEB_AUTH_DOMAIN`
 - `FIREBASE_WEB_PROJECT_ID`
 - `FIREBASE_WEB_STORAGE_BUCKET`
 - `FIREBASE_WEB_MESSAGING_SENDER_ID`
 - `FIREBASE_WEB_APP_ID`
-- `FIREBASE_WEB_MEASUREMENT_ID` if used.
-- `RESEND_API_KEY`: needed for real email delivery.
-- `RESEND_FROM_EMAIL`: verified sender address/domain.
+- `FIREBASE_WEB_MEASUREMENT_ID` if enabled.
+- `RESEND_API_KEY`
+- `RESEND_FROM_EMAIL`
 
 Production tuning variables already supported:
 
@@ -110,6 +147,13 @@ Production tuning variables already supported:
 - `LLM_RETRY_BACKOFF_SECONDS`
 - `LLM_SUMMARY_BATCH_SIZE`
 - `LLM_SUMMARY_ARTICLE_MAX_CHARS`
+- `GEMINI_RELEVANCE_MODELS`
+- `GEMINI_SUMMARY_MODELS`
+- `GEMINI_REQUEST_TIMEOUT_SECONDS`
+- `GEMINI_RETRY_ATTEMPTS`
+- `GEMINI_RETRY_BACKOFF_SECONDS`
+- `GEMINI_SUMMARY_BATCH_SIZE`
+- `GEMINI_SUMMARY_ARTICLE_MAX_CHARS`
 - `SEMANTIC_RETRIEVAL_ENABLED`
 - `SEMANTIC_WARMUP_ENABLED`
 - `SEMANTIC_MODEL_LOCAL_FILES_ONLY`
@@ -120,19 +164,33 @@ Production tuning variables already supported:
 - `SEMANTIC_QUERY_MAX_CHARS`
 - `SEMANTIC_ARTICLE_MAX_CHARS`
 - `RETRIEVAL_UNION_MAX_K`
+- `RERANKER_ENABLED`
+- `RERANKER_REQUIRED`
+- `RERANKER_WARMUP_ENABLED`
+- `RERANKER_MODEL_LOCAL_FILES_ONLY`
+- `RERANKER_MODEL_LOAD_TIMEOUT_SECONDS`
+- `RERANKER_MODEL_NAME`
+- `RERANKER_TOP_K`
+- `RERANKER_MIN_KEEP`
+- `RERANKER_MIN_SCORE`
+- `RERANKER_MAX_SCORE_DROP`
+- `RERANKER_ARTICLE_MAX_CHARS`
+- `RERANKER_BATCH_SIZE`
 - `ARQ_JOB_EXPIRES_SECONDS`
-- `ARQ_JOB_TIMEOUT_SECONDS`
-- `ARQ_MAX_TRIES`
 - `QUEUED_DIGEST_RECOVERY_AFTER_MINUTES`
 - `PROCESSING_DIGEST_RECOVERY_AFTER_MINUTES`
+- `ARQ_JOB_TIMEOUT_SECONDS`
+- `ARQ_MAX_TRIES`
 - `PIPELINE_RETRY_DEFER_SECONDS`
 
-Recommended `.env.example` shape for a future change:
+Recommended future `.env.example` shape:
 
 ```env
 ENV=development
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/smartdigest
 REDIS_URL=redis://localhost:6379
+# Production Upstash should use the Redis protocol TLS URL, not REST credentials:
+# REDIS_URL=rediss://default:<password>@<host>:6379
 
 LLM_API_KEY=
 LLM_RELEVANCE_MODELS=gemini-2.5-flash-lite,gemini-2.5-flash
@@ -161,6 +219,13 @@ RESEND_FROM_EMAIL=
 SEMANTIC_RETRIEVAL_ENABLED=true
 SEMANTIC_WARMUP_ENABLED=false
 SEMANTIC_MODEL_LOCAL_FILES_ONLY=true
+SEMANTIC_MODEL_LOAD_TIMEOUT_SECONDS=5
+
+RERANKER_ENABLED=true
+RERANKER_REQUIRED=true
+RERANKER_WARMUP_ENABLED=false
+RERANKER_MODEL_LOCAL_FILES_ONLY=false
+RERANKER_MODEL_LOAD_TIMEOUT_SECONDS=45
 
 ARQ_JOB_TIMEOUT_SECONDS=900
 ARQ_MAX_TRIES=4
@@ -168,315 +233,440 @@ ARQ_JOB_EXPIRES_SECONDS=604800
 QUEUED_DIGEST_RECOVERY_AFTER_MINUTES=5
 PROCESSING_DIGEST_RECOVERY_AFTER_MINUTES=30
 PIPELINE_RETRY_DEFER_SECONDS=300
+ALLOW_INSECURE_PRODUCTION_REDIS=false
 ```
 
 Secrets risk:
 
-- `.env` exists locally and is ignored by `.gitignore`; it was not inspected.
-- No tracked service account JSON or private key files were found in the quick scan.
-- `app/config.py` contains a committed dev JWT secret default. This is acceptable only if production validation prevents it from being used.
-- Firebase web config values are committed defaults. Firebase web config is public client config, not a service-account secret, but production should either confirm this is the intended Firebase project or override the values explicitly.
+- `.env` exists locally but is ignored by `.gitignore` and is not tracked.
+- No tracked Firebase service-account JSON, private key, or `.env` file was found in the scan.
+- `app/config.py` includes a committed dev JWT default: `dev-secret-change-in-production-abc123`. Production should fail startup if this value is still active.
+- Firebase web config values are committed in `app/config.py`. These are public client config values, not a Firebase Admin private key, but production should intentionally set the exact Firebase project values through environment variables.
+- `RESEND_API_KEY`, `LLM_API_KEY`, `GEMINI_API_KEY`, `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, and Firebase Admin credentials should be stored in Secret Manager, not committed files.
+- Upstash REST URL/token values are not part of the current app configuration. Do not introduce `UPSTASH_REDIS_REST_URL` or `UPSTASH_REDIS_REST_TOKEN` unless a future feature intentionally uses a REST Redis client.
+- The Redis credential currently belongs only in local `.env` for testing or in Secret Manager for production. Real Redis passwords/tokens must not be repeated in docs.
 
-### 3. Database readiness
+### 3. Database Readiness
 
-What is good:
+What is already good:
 
-- ORM is SQLAlchemy 2 async with `asyncpg`.
+- ORM/database library: SQLAlchemy 2 async with `asyncpg`.
 - Migrations exist under `alembic/versions`.
-- `alembic/env.py` reads `DATABASE_URL` from the environment and converts `postgres://` or `postgresql://` to `postgresql+asyncpg://`.
-- No `Base.metadata.create_all()` or auto-create-at-startup path was found.
-- Durable state is in Postgres: `users`, `curated_sources`, `briefings`, `digests`, `digest_items`, `pipeline_events`.
+- `app/config.py` converts `postgres://` or `postgresql://` to `postgresql+asyncpg://`.
+- `app/config.py`, `app/database.py`, and `alembic/env.py` now share asyncpg URL preparation that strips `sslmode=require` from the URL and passes asyncpg `ssl=True`.
+- `alembic/env.py` loads local `.env` for local migration validation while still allowing deployment environments to inject `DATABASE_URL`.
+- No `Base.metadata.create_all()` or auto-create-table-on-startup path was found.
+- Main durable tables are `users`, `curated_sources`, `briefings`, `digests`, `digest_items`, and `pipeline_events`.
+- Current tests around retrieval/pipeline pass.
+- Neon direct-host validation has completed: DB smoke test passed, Alembic head is `e5f6a7b8c9d0`, and 10 curated sources are seeded.
+
+Schema setup requirements:
+
+- For the currently configured Neon database, `alembic upgrade head` has already been run successfully.
+- For the currently configured Neon database, `python -m app.cli seed_sources` has already inserted 10 curated RSS sources. This command is idempotent by URL.
+- No local data migration is needed.
 
 Gaps and risks:
 
-- Cloud Run deployment needs an explicit schema setup step: `alembic upgrade head`.
-- Initial source data also needs `python -m app.cli seed_sources`. This is idempotent, but it should not run inside every web instance startup command.
-- Neon connection strings often include SSL parameters. The current SQLAlchemy asyncpg path passes unknown query parameters through to `asyncpg`. If Neon supplies `sslmode=require`, smoke test it before deploy; it may need an asyncpg-compatible SSL form or a small future code/config adjustment.
-- `app/models/api_key.py` and `app/schemas/keys.py` still exist as removed/stale surfaces, while `app/models/__init__.py` no longer exports `ApiKey`. This is not a launch blocker, but it can confuse future Alembic autogeneration and should be cleaned up later.
-- Future schema changes must be Alembic revisions. Do not use runtime table creation.
+- No Cloud Run-specific migration/release step exists yet.
+- Migrations and source seeding should not run inside every web instance startup command.
+- Neon direct connection is validated. The pooler host has not been selected or tested; switching to it should be an explicit decision because pooling changes connection behavior.
+- The smoke script confirmed asyncpg receives `ssl=True`; `pg_stat_ssl` reported `False` for the backend session, likely because Neon terminates TLS at a managed endpoint/proxy before the Postgres backend. Treat this as a managed-provider observability nuance, not evidence that the app URL parser is still passing `sslmode` incorrectly.
+- `app/api/keys.py`, `app/schemas/keys.py`, and `app/models/api_key.py` remain as removed/stale surfaces. They are not routed in `app/main.py` and `app/models/__init__.py` no longer exports `ApiKey`, but they can confuse future maintenance.
 
 Recommended migration strategy:
 
-- Use Neon empty database for production. No local data migration is needed.
-- Run `alembic upgrade head` once against the production database before shifting traffic.
-- Run `python -m app.cli seed_sources` once after migrations.
-- For future deploys, use a release step or Cloud Run Job to run migrations before traffic moves to the new revision.
-- Keep migrations backward-compatible when possible so rollback to the previous Cloud Run revision remains safe.
-- For destructive schema changes, use a two-step deploy: add new schema first, deploy code compatible with both, backfill/verify, then remove old schema later.
+- Use an empty Neon production database.
+- Run Alembic once before the first deployment.
+- Seed curated sources once after migrations.
+- For future deploys, run migrations as a release step or Cloud Run Job before moving traffic to the new revision.
+- Keep schema changes backward-compatible when possible.
+- For destructive DB changes, use a two-deploy process: add/dual-write first, verify/backfill, then remove old schema later.
 
-### 4. Redis/job queue readiness
+### 4. Redis And Job Queue Readiness
 
-What is good:
+What is already good:
 
-- Queue library is ARQ.
-- Worker entrypoint is clear: `python worker.py`.
-- Manual trigger path in `app/api/briefings.py` creates a `Digest(status="queued")`, enqueues `run_pipeline`, and returns `202`.
-- Scheduled runs and recovery are in `worker.py` cron jobs:
+- Queue library: ARQ.
+- Redis provider: Upstash Redis.
+- Worker entrypoint: `python worker.py`.
+- Manual trigger endpoint: `POST /api/v1/briefings/{briefing_id}/trigger` in `app/api/briefings.py`.
+- Manual trigger creates `Digest(status="queued")`, enqueues `run_pipeline`, and returns `202`.
+- Scheduled enqueue and recovery are ARQ cron jobs in `worker.py`:
   - `recover_queued_digests` every 5 minutes, with `run_at_startup=True`.
   - `enqueue_scheduled_digests` every 30 minutes, with `run_at_startup=True`.
-- Duplicate pipeline protection uses Postgres advisory transaction locking in `app/services/scheduler.py`, not Redis.
-- `ARQ_JOB_TIMEOUT_SECONDS`, `ARQ_MAX_TRIES`, and retry defer are configurable.
+- Duplicate pipeline protection uses Postgres advisory transaction locks in `app/services/scheduler.py`.
+- ARQ job timeout, max tries, job expiry, and retry defer are configurable.
+- `worker.py`, `app/api/briefings.py`, and `app/services/scheduler.py` use `RedisSettings.from_dsn(settings.REDIS_URL)`, which parses `rediss://` with SSL enabled.
+- `app/api/jobs.py` uses `redis.from_url(settings.REDIS_URL)`, keeping the job-status Redis check on the same Redis protocol URL.
+- No tight custom polling loop was found.
 
 Gaps and risks:
 
-- Current worker command is long-running and does not listen on `$PORT`, so it is not directly suitable as a Cloud Run service.
-- If deployed as a Cloud Run service, the worker needs min instances set to 1 and CPU always allocated; otherwise ARQ jobs may sit in Redis with no worker polling them.
-- `WorkerSettings` does not set `max_jobs`. ARQ defaults may allow more concurrent jobs than desired for a small app, especially because each job can fetch multiple pages and call Gemini.
-- Upstash Redis charges/limits by commands and connections. ARQ polling plus job-status checks are probably fine at low volume, but should be monitored.
-- `app/api/jobs.py` checks `zscore("arq:queue", job_id)` and `exists("arq:job:{job_id}")`. Those commands should be compatible with Redis protocol Upstash, but this endpoint should not be polled aggressively.
-- Use the Upstash Redis protocol URL, not the Upstash REST URL or REST token.
+- Current worker command is long-running and does not listen on `$PORT`.
+- If deployed as Cloud Run service, the worker needs min instances 1 and CPU always allocated, or Redis jobs may sit unprocessed.
+- `WorkerSettings` does not explicitly set worker concurrency/max jobs. ARQ defaults may be too high for a small app that performs external fetches and Gemini calls.
+- `app/api/jobs.py` checks `zscore("arq:queue", job_id)` plus `exists("arq:job:{job_id}")`. These should work with Redis-protocol Upstash, but this endpoint should not be polled aggressively.
+- Upstash REST URL/token is not suitable for ARQ and is not needed for the current app configuration. Use the Redis protocol URL in `REDIS_URL`.
 - Prefer `rediss://` for TLS.
+- Any Upstash password/token exposed outside private secret storage should be rotated before production and replaced in Secret Manager/local `.env`.
 
 Recommended worker deployment shape:
 
-- First production shape: separate Cloud Run worker service with:
-  - a tiny HTTP health listener on `$PORT`,
-  - ARQ worker running in the same container,
-  - min instances 1,
-  - CPU always allocated,
-  - low concurrency/max jobs.
-- Alternative later: replace ARQ cron with Cloud Scheduler plus Cloud Run Jobs only if the repo gets a bounded worker command that can drain/process due work and exit.
+- First production shape: separate Cloud Run worker service after adding a small HTTP health listener/wrapper around the ARQ worker.
+- Configure worker service with min instances 1, CPU always allocated, low max instances, and explicit low job concurrency.
+- Alternative later: Cloud Scheduler plus Cloud Run Jobs only if the app gets a bounded command that enqueues/processes due runs and exits.
 
-### 5. Firebase Auth readiness
+### 5. Firebase Auth Readiness
 
-What is good:
+What is already good:
 
 - Firebase Auth is already integrated.
-- `templates/login.html` uses Firebase client SDK for email/password and Google sign-in.
-- `/auth/firebase/session` verifies Firebase ID tokens server-side with Firebase Admin SDK.
-- The app sets an httpOnly session cookie through `app/api/auth.py`.
-- Protected routes go through `SessionAuthMiddleware`.
-- In production, the session cookie is marked `secure` when `ENV=production`.
+- `templates/login.html` uses Firebase JS SDK for email/password and Google sign-in.
+- `/auth/firebase/session` in `app/api/auth.py` receives a Firebase ID token, verifies it through Firebase Admin, creates/updates a local `User`, and sets an `sd_session` cookie.
+- `SessionAuthMiddleware` protects browser and API routes, except explicit public paths.
+- In production, `app/api/auth.py` sets the cookie with `secure=True` when `ENV=production`.
+- Backend session token verification is implemented in `app/services/auth.py`.
+
+Production configuration needed:
+
+- Use `FIREBASE_SERVICE_ACCOUNT_JSON` from Secret Manager or mount a secret file and set `FIREBASE_SERVICE_ACCOUNT_PATH`.
+- Add the Cloud Run default domain to Firebase Auth authorized domains after deployment.
+- Add any custom domain later before switching users to it.
+- Enable Email/Password and Google providers in Firebase if both login methods are desired.
+- Configure password reset/action email settings in Firebase.
 
 Gaps and risks:
 
-- Cloud Run cannot rely on the default local `FIREBASE_SERVICE_ACCOUNT_PATH`. Use `FIREBASE_SERVICE_ACCOUNT_JSON` from Secret Manager or mount the secret file and set `FIREBASE_SERVICE_ACCOUNT_PATH`.
-- Firebase authorized domains must include the Cloud Run service domain and any future custom domain.
-- If using Google sign-in, configure Google provider in Firebase Auth and confirm the OAuth consent screen/domain setup.
-- Password reset email behavior depends on Firebase Auth email templates and authorized action domains.
-- No `ALLOWED_ORIGINS` or CORS config exists. That is fine for the current server-rendered app, but do not split frontend hosting without adding explicit CORS and cookie-domain planning.
-- There is no admin role check for admin-like metrics pages.
+- Cloud Run cannot rely on the local default `~/.config/smartdigest/firebase/firebase-admin-service-account.json`.
+- No `ALLOWED_ORIGINS` or CORS config exists. This is acceptable for the current same-origin server-rendered app, but a separate frontend would need explicit CORS/cookie planning.
+- State-changing endpoints use cookie auth without CSRF tokens. `SameSite=Lax` helps, but CSRF protection should be added before broader public launch.
+- FastAPI docs (`/docs`, `/redoc`, `/openapi.json`) are public by middleware exclusion.
 
-### 6. Gemini API readiness
+### 6. Gemini API Readiness
 
-What is good:
+What is already good:
 
-- Gemini calls are centralized through `app/services/llm/google_genai.py`.
-- API keys are read from settings, preferring `LLM_API_KEY` and accepting legacy `GEMINI_API_KEY`.
-- Model fallback, timeout, retry attempts, backoff, max output tokens, batch size, and article character caps are configurable.
-- Transient provider failures can raise `LLMRetryableError`; scheduler can requeue retryable filter/summarise stages.
-- Logs include model, call name, attempt, status code, and short error message.
+- Gemini calls are centralized in `app/services/llm/google_genai.py`.
+- API key lookup prefers `LLM_API_KEY` and accepts legacy `GEMINI_API_KEY`.
+- Model fallback chain is configurable for relevance and summarisation.
+- Timeouts, retry attempts, backoff, summary batch size, and article character caps are configurable.
+- Provider errors log call name, model, attempt, status code, and shortened error text.
+- Retryable LLM provider failures can raise `LLMRetryableError`; `app/services/scheduler.py` can requeue retryable filter/summarise failures.
 
 Gaps and risks:
 
-- If no LLM API key is configured, `LLMRelevanceFilter.score_and_filter()` marks candidates with default score 6 and `summarise_articles()` returns placeholder summaries. In production this should be a startup config failure, not a silent quality fallback.
-- `RESEND_API_KEY` has similar dev-mode behavior: absent key logs email and returns success. Production should fail validation if real email delivery is expected.
-- Need per-user or global cost controls beyond the current manual trigger rate limit. Existing manual trigger limit is `3/hour` in `app/api/briefings.py`.
-- Cloud Run worker concurrency should be low to protect Gemini spend and external source fetch volume.
-- Consider logging request sizes, selected model, article count, and final token/cost estimates if Gemini exposes usage metadata.
+- If no LLM API key is configured, `LLMRelevanceFilter.score_and_filter()` marks articles with default score 6 and keeps them, while `summarise_articles()` writes placeholder summaries. In production, this should be a startup failure, not a silent fallback.
+- `RESEND_API_KEY` has similar dev-mode behavior: absent key logs email content and returns success.
+- Manual trigger is rate-limited to `3/hour`, but there is no broader Gemini budget/usage cap.
+- Worker concurrency should be intentionally low to control Gemini spend.
+- Provider usage/cost metadata is not captured if the SDK exposes it.
 
-### 7. Cloud Run deployment readiness
+Local model deployment risk:
 
-What is good:
+- `SEMANTIC_RETRIEVAL_ENABLED` defaults to true, `SEMANTIC_MODEL_LOCAL_FILES_ONLY` defaults to true, and `SEMANTIC_MODEL_NAME` defaults to `sentence-transformers/all-MiniLM-L6-v2`. If the model is not already cached inside the Cloud Run image, semantic retrieval will fail soft and BM25 will carry retrieval.
+- `RERANKER_ENABLED` defaults to true, `RERANKER_REQUIRED` defaults to true, `RERANKER_MODEL_LOCAL_FILES_ONLY` defaults to false, and `RERANKER_MODEL_NAME` defaults to `cross-encoder/ettin-reranker-68m-v1`. That means the worker may try to download/load a Hugging Face model at runtime. If that fails or exceeds timeout, the pipeline can fail because reranker is required.
+- For first deployment, either disable semantic/reranker features with env vars or deliberately package/cache models and allocate enough memory.
+
+### 7. Cloud Run Deployment Readiness
+
+What is already good:
 
 - Existing Railway files identify the correct web and worker process commands.
-- `Procfile` already uses `$PORT` for the web process.
+- Web command already uses `$PORT`.
 - App does not require persistent disk for current features.
-- Templates are packaged in the repo and should work in a container if copied.
+- Templates are in the repo and should work if copied into the container image.
 
 Gaps and risks:
 
 - No Dockerfile exists.
-- No Cloud Run service/job config exists.
-- No health endpoint exists.
-- Worker process needs Cloud Run-specific handling, as described above.
-- Startup tasks should not run in every web instance. Do not put `alembic upgrade head` or `python -m app.cli seed_sources` in the web service command.
-- The app imports `sentence-transformers` and `trafilatura`, which can increase image size and memory use. Test Cloud Run memory before assuming the smallest tier works.
-- Semantic retrieval defaults to `SEMANTIC_MODEL_LOCAL_FILES_ONLY=true`. Unless the sentence-transformers model is baked into the image/cache, semantic retrieval will fail soft and BM25 will carry retrieval. For the first minimal deployment, either disable semantic retrieval or deliberately package the model and allocate enough memory.
+- No `.dockerignore` exists.
+- No Cloud Run service, job, or deploy script exists.
+- No dedicated health endpoint exists.
+- Worker needs Cloud Run-specific handling because it does not listen on `$PORT`.
+- Startup tasks should not run on every web instance. Avoid putting `alembic upgrade head` or `python -m app.cli seed_sources` in the web service command.
+- `sentence-transformers`, `transformers`, and `trafilatura` increase image size and memory needs.
+- Cloud Run filesystem is ephemeral. Current app appears fine because it does not rely on persistent disk, but future uploads/cache files need external storage.
 
 Conceptual Dockerfile contents for a later implementation:
 
-- Pin Python version, likely `python:3.11-slim` if you choose to match README, or use 3.9 if you choose to match the current local venv.
-- Install system packages needed by Python dependencies if required.
+- Use a Python 3.11 base image to match the local venv and README.
+- Install system packages needed by Python dependencies, if required.
 - Install `requirements.txt`.
-- Copy `app/`, `alembic/`, `templates/`, `worker.py`, `alembic.ini`.
-- Set non-root user if practical.
-- Web command should run Uvicorn on `${PORT}` with proxy headers.
-- Worker image can reuse the same image but needs a different command.
+- Copy `app/`, `alembic/`, `templates/`, `worker.py`, and `alembic.ini`.
+- Run as a non-root user if practical.
+- Let Cloud Run inject `PORT`.
+- Use the web command listed above.
+- Reuse the same image for worker with a separate command once worker health/listener shape is implemented.
 
 Suggested initial Cloud Run sizing:
 
-- Web service: 512 MiB to 1 GiB memory, 1 CPU, concurrency 20-40, max instances low while testing, min instances 0 unless you need warm start.
-- Worker service: 1-2 GiB memory if semantic model is enabled; otherwise 512 MiB to 1 GiB may be enough. Set min instances 1, CPU always allocated, concurrency effectively 1 at the app/worker level.
-- Start with conservative max instances to protect Neon, Upstash, Gemini, and source sites.
+- Web service: 512 MiB to 1 GiB memory, 1 CPU, concurrency 20 to 40, low max instances during launch, min instances 0 unless warm starts matter.
+- Worker service: 1 to 2 GiB memory if semantic/reranker models are enabled; otherwise 512 MiB to 1 GiB may be enough. Use min instances 1 and CPU always allocated.
+- Keep worker max instances and job concurrency low at first to protect Neon, Upstash, Gemini, Resend, and source sites.
 
-### 8. Production safety and maintainability
+### 8. Production Safety And Maintainability
 
 Already good:
 
-- Structured logging through `structlog`, JSON renderer in production.
-- Pipeline events stored in Postgres for fetch/filter/summarise/deliver observability.
-- Manual trigger is rate-limited.
+- Structured logging through `structlog`, with JSON renderer in production.
+- Pipeline events are stored in Postgres for fetch/filter/summarise/deliver observability.
+- Manual trigger has a per-user/IP rate limit.
 - Most SQL is SQLAlchemy expression API, not string-concatenated SQL.
-- Ownership checks exist for briefings and digest detail endpoints.
+- Briefing and digest detail endpoints enforce ownership.
 - Secure cookie flag is tied to `ENV=production`.
+- Current retrieval/pipeline tests pass.
 
 Risks to fix before public production:
 
-- `app/api/jobs.py` does not verify that the authenticated user owns the digest/job being inspected. Any logged-in user who guesses a digest ID can see status and latest pipeline event details.
-- Metrics pages and metrics APIs expose global pipeline health to any authenticated user. This may leak cross-user operational data and error messages.
-- No explicit production config validation. The app can start with dev defaults or missing critical secrets.
+- `app/api/jobs.py` does not verify that the authenticated user owns the digest/job being inspected. A logged-in user who guesses a digest ID can see status and latest pipeline event details.
+- Metrics pages and metrics APIs expose global pipeline health to any authenticated user.
+- No explicit production config validation exists.
 - Missing health endpoint.
-- Worker not Cloud Run service-ready.
-- Real email delivery depends on `RESEND_API_KEY`; otherwise production can appear successful while no email is sent.
-- LLM missing-key behavior can produce placeholder/low-quality digests instead of failing fast.
+- Worker is not Cloud Run service-ready.
+- Missing LLM key and missing Resend key can lead to silent dev-mode behavior.
+- Public `/docs`, `/redoc`, and `/openapi.json` may be acceptable for a private beta but should be an explicit decision.
+- Cookie-auth state changes have no CSRF token.
+- External scripts are loaded from CDNs without an explicit CSP.
 
-Security concerns to review:
+Recommended smoke tests before deployment:
 
-- CSRF protection: state-changing browser routes use cookie auth and `fetch()`/forms without CSRF tokens. `SameSite=Lax` reduces risk, but add CSRF protection before broader public use.
-- Admin routes: `/metrics` and `/app/admin/metrics` are authenticated but not admin-restricted.
-- API docs: `/docs`, `/redoc`, and `/openapi.json` are public through middleware exclusions. Decide whether to disable/protect them in production.
-- Cookies: production `secure=True` is good; keep `SameSite=Lax` unless a future cross-site frontend requires another policy.
-- CORS: no CORS is configured, which is good for the current same-origin server-rendered app.
-- Secrets: use Secret Manager, not committed files or local paths.
-- Error messages: pipeline error messages may include provider/source details; avoid exposing them to non-admin users.
-- External scripts: templates load Firebase SDK, HTMX, and fonts from CDNs. Add security headers/CSP later if you keep CDN usage.
+- Build image successfully.
+- Run `alembic upgrade head` against Neon.
+- Run `python -m app.cli seed_sources` against Neon.
+- Start web container locally with production-like env.
+- Confirm `/healthz` responds once added.
+- Confirm Firebase login exchanges a token at `/auth/firebase/session`.
+- Confirm `sd_session` cookie is `Secure`, `HttpOnly`, and `SameSite=Lax` in production.
+- Create a briefing.
+- Trigger a digest.
+- Confirm web enqueues to Upstash.
+- Confirm worker dequeues and processes a job.
+- Run `python scripts/smoke_redis.py` with the intended `REDIS_URL` to verify Redis `PING`, short-lived `SET`/`GET`, and ARQ DSN parsing.
+- Confirm Gemini calls succeed.
+- Confirm Resend sends real email.
+- Confirm metrics update.
+- Confirm logout clears session.
 
-## Risks and blockers
+Safe update and rollback strategy:
+
+- Build each release as a new Cloud Run revision.
+- Run migrations before routing traffic.
+- Prefer backward-compatible migrations.
+- Shift traffic gradually for non-trivial changes.
+- Roll back by moving Cloud Run traffic to the previous revision.
+- If a migration is destructive, rollback may need a paired database plan; do not assume app rollback alone is enough.
+
+### 9. What Not To Overcomplicate
+
+- Do not use Kubernetes.
+- Do not switch to Cloud SQL unless Neon becomes a repo-specific blocker.
+- Do not switch to Memorystore unless Upstash proves incompatible with ARQ or command volume.
+- Do not split frontend hosting; the repo is server-rendered.
+- Do not rewrite the queue system before first deployment.
+- Do not introduce a separate SPA build pipeline.
+- Do not run migrations from every web container startup.
+
+## Risks And Blockers
 
 Deployment blockers:
 
 1. Worker is not Cloud Run service-ready because `python worker.py` does not listen on `$PORT`.
-2. No production config validation; production could run with missing `LLM_API_KEY`, missing `RESEND_API_KEY`, default `JWT_SECRET`, local DB/Redis defaults, or missing Firebase Admin credentials.
-3. No explicit `/healthz` endpoint.
-4. Job status endpoint lacks digest ownership enforcement.
-5. Metrics pages/API expose global pipeline data to any authenticated user.
-6. Need to validate Neon SSL connection-string compatibility with SQLAlchemy asyncpg.
+2. No production config validation; production could start with default/local DB or Redis URLs, default `JWT_SECRET`, missing Firebase Admin credentials, missing LLM key, or missing Resend key.
+3. No dedicated `/healthz` endpoint.
+4. `app/api/jobs.py` lacks digest ownership enforcement.
+5. Metrics routes expose global operational data to any authenticated user.
+6. First deployment must decide whether to disable or package semantic/reranker local models.
 
 Operational risks:
 
-1. Semantic retrieval may silently disable itself on Cloud Run unless the model is packaged or the feature is disabled.
-2. Worker concurrency and ARQ defaults may exceed small-app cost expectations.
-3. Upstash command/connection limits need monitoring.
-4. README and existing Railway docs contain stale references to old auth/API behavior and Railway deployment.
-5. No Cloud Run-specific deploy/runbook files exist yet.
+1. Worker concurrency may be too high by default for Gemini/cost/source-site limits.
+2. Upstash command and connection limits should be monitored.
+3. External CDN dependencies can affect login/UI availability.
+4. Existing README/Railway docs contain deployment/auth details that are not the Cloud Run plan.
+5. No Cloud Run-specific runbook or deploy files exist yet.
 
-## Recommended changes by priority
+## Recommended Changes By Priority
 
-### Must do before deployment
+### Must Do Before Deployment
 
-- Add production config validation in `app/config.py` or startup code:
-  - fail if `ENV=production` and `JWT_SECRET` is default/short,
-  - fail if `DATABASE_URL` or `REDIS_URL` is local/default,
-  - fail if `LLM_API_KEY`/`GEMINI_API_KEY` is missing,
-  - fail if `RESEND_API_KEY` is missing for real email delivery,
-  - fail if Firebase Admin credentials are missing,
+- Add production config validation:
+  - fail if `ENV=production` and `JWT_SECRET` is default/short;
+  - fail if `DATABASE_URL` or `REDIS_URL` is local/default;
+  - require `rediss://` for production Redis unless `ALLOW_INSECURE_PRODUCTION_REDIS=true` is deliberately set;
+  - fail if Firebase Admin credentials are missing;
+  - fail if `LLM_API_KEY`/`GEMINI_API_KEY` is missing;
+  - fail if `RESEND_API_KEY` is missing for production email delivery;
   - confirm Firebase web config is explicitly set.
-- Add unauthenticated lightweight health endpoint, for example `/healthz`, and exclude it from auth middleware.
-- Decide and implement Cloud Run worker shape:
-  - long-running worker service with HTTP health listener, min instances 1, CPU always allocated, or
-  - add a finite drain command if you want a Cloud Run Job instead.
-- Protect `app/api/jobs.py` by verifying the digest belongs to `request.state.user_id`.
-- Restrict global metrics pages/API to an admin role or remove global details from normal users.
-- Decide initial semantic retrieval behavior on Cloud Run:
-  - disable with `SEMANTIC_RETRIEVAL_ENABLED=false`, or
-  - package/warm the model and allocate enough memory.
-- Create Cloud Run deployment files or scripts later:
-  - Dockerfile or buildpack config,
-  - web service command,
-  - worker service/job command,
-  - migration/seed release job.
-- Validate Neon URL with `alembic upgrade head` and a simple app DB connection smoke test.
-- Use Upstash Redis protocol URL with TLS and smoke test ARQ enqueue/dequeue.
-- Configure Firebase authorized domains for Cloud Run/custom domain.
+- Add an unauthenticated lightweight `/healthz` endpoint and exclude it from auth middleware if needed.
+- Decide and implement worker shape for Cloud Run:
+  - long-running worker service with HTTP health listener, min instances 1, CPU always allocated; or
+  - later bounded Cloud Run Job command if you choose to redesign the worker entrypoint.
+- Protect `app/api/jobs.py` by verifying digest ownership through `briefings.user_id == request.state.user_id`.
+- Restrict global metrics pages/API to an admin role or remove global error details from normal users.
+- Decide first-deploy local model behavior:
+  - simplest: set `SEMANTIC_RETRIEVAL_ENABLED=false` and `RERANKER_ENABLED=false`;
+  - higher quality: package/cache the models and allocate enough memory.
+- Add Cloud Run deployment assets in a later implementation phase:
+  - Dockerfile;
+  - `.dockerignore`;
+  - web service command;
+  - worker command/wrapper;
+  - migration/seed release job or documented commands.
+- Neon direct-host validation is complete locally. For deployment, repeat migration/seed as a release step only when targeting a fresh or changed production database.
+- Validate Upstash Redis protocol TLS URL with `scripts/smoke_redis.py` and ARQ enqueue/dequeue.
+- Configure Firebase authorized domains for Cloud Run and custom domain.
 
-### Should do soon after deployment
+### Should Do Soon After Deployment
 
 - Add CSRF protection for cookie-auth state-changing endpoints.
-- Add admin/user role model if metrics/admin pages should exist.
-- Add security headers/CSP, especially because external scripts are loaded from CDNs.
-- Make ARQ worker concurrency explicit and low, for example a future `ARQ_MAX_JOBS` setting.
-- Add real queue visibility and owner-safe job history if users need progress details.
-- Add deployment smoke tests:
-  - login,
-  - create briefing,
-  - trigger digest,
-  - worker processes job,
-  - email is delivered,
-  - metrics update,
-  - logout.
-- Add logging correlation IDs for digest/job IDs across web enqueue and worker pipeline.
-- Add provider usage/cost logging for Gemini if SDK exposes usage metadata.
-- Update stale README deployment/auth sections after Cloud Run plan is implemented.
+- Add an admin/user role model if metrics/admin pages should exist.
+- Add security headers and CSP, especially if CDN scripts remain.
+- Make ARQ worker concurrency explicit with a setting such as future `ARQ_MAX_JOBS`.
+- Add owner-safe job history/progress details.
+- Add deployment smoke tests for login, briefing creation, queue, worker, email, metrics, and logout.
+- Add correlation/request IDs across web enqueue and worker pipeline logs.
+- Add provider usage/cost logging for Gemini if available.
+- Update README deployment/auth sections after Cloud Run implementation is complete.
 
-### Nice to have later
+### Nice To Have Later
 
-- Custom domain and Firebase/Auth email template polish.
-- Cloud Monitoring dashboards and alert policies for worker failures, failed digests, queue backlog, and email failures.
+- Custom domain and polished Firebase action email templates.
+- Cloud Monitoring dashboards and alerts for failed digests, queue backlog, worker restarts, and email failures.
 - Error tracking service.
-- More complete test coverage around auth, ownership, and production config validation.
-- Clean up removed API key model/schema files if confirmed unused.
-- Consider moving scheduled enqueueing from ARQ cron to Cloud Scheduler later, but only if it simplifies operations.
+- More tests around auth, ownership, production config validation, and worker command shape.
+- Clean up removed/stale API key files if confirmed unused.
+- Consider replacing ARQ cron scheduling with Cloud Scheduler later only if it simplifies operations.
 
-## Suggested deployment shape
+## Exact Files And Modules Involved
 
-### Web service
+Entrypoint/runtime:
+
+- `app/main.py`
+- `Procfile`
+- `railway.toml`
+- `services/web/railway.toml`
+
+Config/secrets:
+
+- `app/config.py`
+- `.gitignore`
+- `.env` exists locally but is untracked
+
+Database/migrations:
+
+- `app/database.py`
+- `app/models/*.py`
+- `alembic/env.py`
+- `alembic/versions/*.py`
+- `app/cli.py`
+
+Queue/worker:
+
+- `worker.py`
+- `app/services/scheduler.py`
+- `app/api/briefings.py`
+- `app/api/jobs.py`
+
+Auth:
+
+- `app/api/auth.py`
+- `app/services/auth.py`
+- `app/middleware/auth.py`
+- `templates/login.html`
+- `templates/account_security.html`
+- `templates/public_home.html`
+
+LLM/retrieval:
+
+- `app/services/llm/google_genai.py`
+- `app/services/filters/__init__.py`
+- `app/services/filters/llm_relevance.py`
+- `app/services/filters/semantic.py`
+- `app/services/filters/reranker.py`
+- `app/services/summariser.py`
+
+Email:
+
+- `app/services/mailer.py`
+
+Metrics/security:
+
+- `app/api/metrics.py`
+- `app/services/metrics.py`
+- `templates/metrics.html`
+- `templates/partials/metrics_panel.html`
+- `templates/partials/metrics_full.html`
+
+Templates/static:
+
+- `templates/base.html`
+- `templates/*.html`
+
+Tests:
+
+- `tests/test_retrieval_pipeline.py`
+
+## Suggested Deployment Shape
+
+### Web Service
 
 - Cloud Run service name: `smartdigest-web`.
 - Command: `uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --proxy-headers --forwarded-allow-ips='*'`.
-- Receives public traffic.
-- Runs no migrations or seeding at startup.
-- Has `ENV=production` and all required secrets injected.
-- Uses Neon and Upstash URLs.
+- Public traffic enabled.
+- Runs no migrations or seed commands at startup.
+- Uses `ENV=production`.
+- Reads Neon, Upstash, Firebase, Gemini, Resend, and JWT secrets from env/Secret Manager.
+- Suggested initial resources: 512 MiB to 1 GiB memory, 1 CPU, concurrency 20 to 40, conservative max instances.
 
-### Worker service/job
+### Worker Service Or Job
 
-Current best fit: separate long-running Cloud Run service after adding health listener support.
+Current best fit: separate long-running Cloud Run worker service after a small future change adds an HTTP health listener.
 
-- Service name: `smartdigest-worker`.
-- Internal/no public user traffic.
+- Cloud Run service name: `smartdigest-worker`.
+- No public user traffic.
 - Runs ARQ worker logic from `worker.py`.
-- Needs to listen on `$PORT` for Cloud Run health.
+- Must listen on `$PORT` for Cloud Run service health.
 - Set min instances 1.
 - Set CPU always allocated.
-- Keep concurrency/job count low.
+- Keep worker concurrency low.
+- Use the same image as web if practical, but with a different command.
 
 Do not deploy current `python worker.py` as a plain Cloud Run service without a port listener.
 
 ### Database
 
 - Neon Postgres, empty production database.
-- Run schema migrations: `alembic upgrade head`.
-- Seed curated sources: `python -m app.cli seed_sources`.
+- Current Neon direct-host database is at Alembic head `e5f6a7b8c9d0`.
+- Current Neon direct-host database has 10 curated sources seeded.
+- Future deploys should run `alembic upgrade head` and `python -m app.cli seed_sources` as explicit release-step commands, not web service startup commands.
 - No local data migration required.
 
 ### Redis
 
-- Upstash Redis using Redis protocol URL.
-- Prefer `rediss://...` TLS URL.
-- Use same `REDIS_URL` for web enqueue and worker dequeue.
-- Do not use Upstash REST token/URL for ARQ.
+- Upstash Redis using the Redis protocol URL in `REDIS_URL`.
+- Prefer `rediss://...`; this is the correct credential shape for ARQ.
+- Use the same `REDIS_URL` for web enqueue and worker dequeue.
+- Do not use Upstash REST URL/token for ARQ or add REST env vars unless a future REST-client feature needs them.
 
 ### Auth
 
-- Firebase Auth project with Email/Password and Google provider enabled if desired.
-- Backend verifies Firebase ID tokens using Admin SDK.
+- Firebase Auth project with Email/Password enabled and Google provider enabled if desired.
+- Backend verifies Firebase ID tokens through Firebase Admin SDK.
 - App session cookie remains `sd_session`.
 - Authorized domains must include Cloud Run URL and future custom domain.
 
 ### Gemini
 
 - Store API key in Secret Manager and inject as `LLM_API_KEY`.
-- Keep model fallback configurable:
+- Recommended initial model env:
   - `LLM_RELEVANCE_MODELS=gemini-2.5-flash-lite,gemini-2.5-flash`
   - `LLM_SUMMARY_MODELS=gemini-2.5-flash-lite,gemini-2.5-flash`
-- Use conservative worker concurrency and current batching/char caps to control cost.
+- Keep batching and article char caps conservative.
+- Keep worker concurrency low to control spend.
 
-## What not to overcomplicate
+### Email
 
-- Do not introduce Kubernetes.
-- Do not switch to Cloud SQL unless Neon becomes a repo-specific blocker.
-- Do not switch to Memorystore unless Upstash proves incompatible with ARQ or command volume.
-- Do not split frontend hosting; the repo is server-rendered.
-- Do not rewrite the queue system before first deployment. Fix the Cloud Run worker shape and security/config blockers first.
-- Do not run migrations from every web container startup.
+- Store `RESEND_API_KEY` in Secret Manager.
+- Set `RESEND_FROM_EMAIL` to a verified sender.
+- Treat missing Resend key as a production deployment failure.
