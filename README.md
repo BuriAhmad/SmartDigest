@@ -1,423 +1,201 @@
-<div align="center">
+# SmartDigest
 
-# 🧠 SmartDigest
+SmartDigest is an AI briefing product for people who want to stay deeply informed without living inside tabs, feeds, newsletters, and link dumps.
 
-### *AI-Powered Content Briefings — Built for Depth, Not Just Speed*
+It watches the sources you care about, understands what you are actually trying to learn, filters out the noise, and sends you a clean email briefing with the articles that matter most. Not just summaries. Not just headlines. SmartDigest explains why each story is relevant to your goal.
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-Railway-blueviolet?style=for-the-badge&logo=railway)](https://smartdigest-production.up.railway.app)
-[![Python](https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+If your current research workflow is "open 30 tabs, skim 12 newsletters, lose the important thing anyway," SmartDigest is built to feel like a calmer, sharper way forward.
 
-> Stop drowning in tabs. SmartDigest fetches content from across the web, filters out the noise with a two-stage AI pipeline, and delivers a **personally relevant** briefing to your inbox — one that explains *why* each story matters to **you**.
+## The Product
 
-**[🚀 Try the Live Demo](https://smartdigest-production.up.railway.app)**  ·  **[📖 API Docs](https://smartdigest-production.up.railway.app/docs)**
+SmartDigest turns the internet into a personal briefing desk.
 
-</div>
+You create a briefing around a topic you care about: AI research, startup funding, data engineering, cybersecurity, developer tools, climate tech, fintech, or anything else you track. Then you describe your intent in plain language. That intent is the important part.
 
----
+Instead of saying only:
 
-## ✨ Why SmartDigest is Different
-
-Most newsletter tools give you a summary of what an article *says*.  
-**SmartDigest tells you what it *means for you*.**
-
-When you create a briefing, you don't just pick a topic — you describe your **intent**: what you're trying to learn, which keywords matter, examples of articles you find valuable, and what to ignore. The AI pipeline uses that intent at every stage:
-
-| Stage | What happens |
-|---|---|
-| 🔍 **Fetch** | Concurrent async scraping across RSS feeds + a purpose-built Hacker News scraper that fetches full article text (not just headlines) |
-| 🧹 **BM25 Lexical Filter** | Keyword-aware ranking drops clearly irrelevant articles before spending any AI quota |
-| 🤖 **LLM Relevance Filter** | Gemini scores each remaining article 1–10 against your stated intent. Articles below the threshold are excluded. |
-| ✍️ **Intent-Aware Summary** | The surviving articles are summarised in a single batched Gemini call — but not generically. The prompt instructs the model to act as *your knowledgeable advisor*, extracting what matters and explaining why. |
-| 📧 **Delivery** | A clean HTML digest lands in your inbox via Resend |
-| 📊 **Observability** | Every stage transition is written to `pipeline_events` — you can inspect durations, failure reasons, and throughput from the live dashboard |
-
----
-
-## 🏗️ Architecture
-
-```
-Browser / API Client
-        │
-        ▼
-┌─────────────────────────────┐      enqueue job       ┌───────────────────┐
-│  FastAPI  (web service)     │ ─────────────────────► │    Redis Queue    │
-│  Uvicorn · Jinja2 · HTMX   │                         └─────────┬─────────┘
-│  SessionAuth · Rate Limit   │                                   │ dequeue
-└────────────┬────────────────┘                                   ▼
-             │ async read/write                ┌─────────────────────────────┐
-             ▼                                 │      ARQ Worker             │
-┌─────────────────────┐                        │  ┌─────────────────────┐   │
-│    PostgreSQL 16     │ ◄──────────────────── │  │  1. Fetch (async)   │   │
-│  SQLAlchemy 2 async  │                        │  │  2. BM25 Filter     │   │
-└─────────────────────┘                        │  │  3. LLM Filter      │   │
-                                               │  │  4. AI Summarise    │   │
-                                               │  │  5. Email Deliver   │   │
-                                               │  └─────────────────────┘   │
-                                               └─────────────────────────────┘
+```text
+AI
 ```
 
-The web server and background worker are **fully decoupled** — they share only the Redis queue and PostgreSQL. Every trigger returns `202 Accepted` immediately. The worker handles all long-running work.
+you can say:
 
----
-
-## 🔥 Features
-
-### 🎯 Intent-Driven Briefings
-- Describe **what you want to learn**, not just a topic keyword
-- Provide example articles that represent valuable content
-- Set explicit **exclusion keywords** to suppress noise topics
-- The AI pipeline passes your intent context through every stage
-
-### ⚡ Production-Grade Pipeline
-- Concurrent feed fetching with per-source scraper dispatch
-- Fetches source articles newer than the last delivered digest before ranking
-- **Purpose-built Hacker News scraper** — fetches full linked article text via `trafilatura`, not just RSS headlines
-- Two-stage filtering: fast BM25 lexical pre-filter → LLM relevance scoring
-- Batched Gemini summarisation through the shared LLM layer
-- **Model fallback chain**: `gemini-2.5-flash-lite` → `gemini-2.5-flash` — prioritises lower cost while keeping a stronger fallback
-
-### 🔐 Secure Authentication
-- Email + password accounts with `bcrypt` password hashing
-- JWT sessions in `httpOnly` cookies (`SameSite=Lax`)
-- **Three-layer bfcache defence** — authenticated pages are never stored in browser history
-- 3-day rolling sessions; `Cache-Control: no-store` on all protected HTML
-
-### 📊 Full Observability
-- Every pipeline stage (`fetch` / `filter` / `summarise` / `deliver`) logged to `pipeline_events`
-- Live metrics panel on dashboard: 24h job counts, per-stage latency, last error — HTMX-polled every 5s
-- `/api/v1/metrics/pipeline` endpoint backed by real SQL aggregates
-- Structured JSON logging via `structlog` in production, pretty console in development
-
-### 📱 Responsive Dashboard
-- HTMX-powered UI — no JavaScript framework, no build step
-- **Mobile bottom navigation bar** with safe-area insets for notched iPhones
-- Schedule times shown in the **user's local timezone** (auto-detected via `Intl.DateTimeFormat`)
-- Skeleton loading states, toast notifications, inline validation
-
-### 🗓️ Scheduled Delivery
-- ARQ cron job at 06:00 UTC enqueues all active briefings automatically
-- Flexible schedule options: daily at 6 AM, 7 AM, 8 AM, noon, or 6 PM UTC
-- Manual trigger via dashboard ("Run Now") — rate-limited to 3 runs/hour
-
-### 🛠️ Developer-Friendly
-- Dev mode: if `RESEND_API_KEY` is unset, emails are printed to console
-- Full OpenAPI docs at `/docs` and `/redoc`
-- CLI commands for seeding sources and creating users
-- Alembic migrations with async support
-
----
-
-## 🧰 Tech Stack
-
-| Layer | Technology | Why |
-|---|---|---|
-| Web framework | **FastAPI 0.115** | Async-native, auto-generated OpenAPI, excellent DX |
-| ASGI server | **Uvicorn** | Production-ready, matches Railway's Procfile model |
-| Database | **PostgreSQL 16** | JSONB for sources/keywords, partial indexes on active rows |
-| ORM | **SQLAlchemy 2.0 (async)** | Fully async, typed `Mapped[]` columns |
-| Migrations | **Alembic** | Async-configured, runs on every deploy |
-| Task queue | **ARQ** | Async Redis queue — simpler than Celery, first-class async |
-| Cache / broker | **Redis 7** | Backs both ARQ queue and `slowapi` rate limits |
-| AI summarisation | **Google Gemini 2.5 Flash-Lite** | Official Google GenAI SDK behind SmartDigest's shared LLM layer |
-| Email delivery | **Resend API** | 3,000 free emails/month, no credit card |
-| HTTP client | **httpx (async)** | Async, connection pooling, timeout handling |
-| RSS parsing | **feedparser** | Battle-tested, handles malformed feeds |
-| Full-text extraction | **trafilatura** | Used by the HN scraper to pull article body from linked URLs |
-| Frontend | **Jinja2 + HTMX + Tailwind CDN** | Server-rendered, zero build step, HTMX for partial updates |
-| Rate limiting | **slowapi** | Redis-backed per-user limits |
-| Structured logging | **structlog** | JSON in prod, pretty console in dev |
-| Configuration | **Pydantic Settings** | Env-file + OS env, validated at startup |
-| Auth | **PyJWT + bcrypt** | Signed httpOnly cookie sessions |
-| Deployment | **Railway** | Two-service split: web + worker |
-
----
-
-## 📐 Database Schema
-
-```
-users             — email, bcrypt hash, name, firebase_uid, last_login_at
-curated_sources   — pre-approved RSS feeds (seeded via CLI); name, rss_url, active
-briefings         — user's configured feed: topic, intent_description, keywords[],
-                    example_articles[], exclusion_keywords[], sources[], schedule, email
-digests           — one record per pipeline run: briefing_id, status, delivered_at
-digest_items      — one row per article: title, summary, source_url, item_url, fetch_duration_ms
-pipeline_events   — observability log: stage × status × duration_ms × error_msg × item_count
+```text
+Track practical AI infrastructure, model evaluation, production LLM systems, and engineering lessons that would matter to a technical founder or backend team.
 ```
 
-Partial index on `briefings (user_id) WHERE active = true` — keeps scheduler query fast at scale.
+SmartDigest uses that intent to decide what belongs in your inbox.
 
----
+## Why It Exists
 
-## 🚀 Getting Started (Local)
+Most content tools are built around volume.
 
-### Prerequisites
+More feeds. More newsletters. More saved articles. More things to maybe read later.
 
-- Python 3.11+
-- Docker (for PostgreSQL and Redis)
-- [Resend](https://resend.com) API key (free tier)
-- [Google AI Studio](https://aistudio.google.com) API key (free tier)
+SmartDigest is built around judgment.
 
-### 1. Clone and install
+It does the tedious first pass for you: collecting, ranking, filtering, and compressing information into something you can actually use. The goal is not to make you read faster. The goal is to make sure your attention goes to the right things.
 
-```bash
-git clone https://github.com/BuriAhmad/SmartDigest.git
-cd SmartDigest
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+## What SmartDigest Can Do
+
+Create focused briefings around specific interests.
+
+Pick from curated high-signal sources instead of dumping random URLs into a feed reader.
+
+Describe what you care about in natural language, including what to include and what to ignore.
+
+Automatically fetch new articles from trusted sources.
+
+Rank articles by how relevant they are to your stated intent.
+
+Use AI to explain why an article matters, not just what it says.
+
+Send polished digest emails on a schedule.
+
+Run a briefing immediately when you want a fresh update.
+
+Keep a history of past digests so you can revisit what was sent.
+
+Show pipeline status, run history, failures, and delivery outcomes so the product feels transparent instead of mysterious.
+
+## Why It Feels Different
+
+Generic summaries answer:
+
+```text
+What is this article about?
 ```
 
-### 2. Start PostgreSQL and Redis
+SmartDigest tries to answer:
 
-```bash
-docker run -d --name smartdigest-postgres \
-  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=smartdigest \
-  -p 5432:5432 postgres:16
-
-docker run -d --name smartdigest-redis \
-  -p 6379:6379 redis:7
+```text
+Why should I care about this article, given what I am trying to learn?
 ```
 
-### 3. Configure environment
+That difference matters.
 
-Create a `.env` file in the project root:
+A generic AI summary can compress a bad article. SmartDigest is designed to avoid sending the bad article in the first place. It first narrows the field, then scores relevance, then creates summaries only for the pieces that survive.
 
-```env
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/smartdigest
-REDIS_URL=redis://localhost:6379
-LLM_API_KEY=your_google_ai_studio_key_here
-LLM_RELEVANCE_MODELS=gemini-2.5-flash-lite,gemini-2.5-flash
-LLM_SUMMARY_MODELS=gemini-2.5-flash-lite,gemini-2.5-flash
-RESEND_API_KEY=your_key_here          # Omit entirely for dev mode (emails logged to console)
-RESEND_FROM_EMAIL=onboarding@resend.dev
-JWT_SECRET=generate-a-random-secret-here
-ENV=development
+The result is a briefing that feels closer to a research assistant than a feed reader.
+
+## A Simple Example
+
+Imagine you create a briefing called:
+
+```text
+Data Engineering
 ```
 
-### 4. Migrate and seed
+But your real intent is:
 
-```bash
-alembic upgrade head
-python -m app.cli seed_sources
+```text
+Find practical articles about data pipelines, orchestration, warehouse architecture, streaming systems, reliability, and lessons from production data teams. Ignore beginner SQL tutorials and generic AI hype.
 ```
 
-### 5. Create your account
+SmartDigest can use that context to separate a useful engineering post from a random tech headline. It can then send an email with ranked articles, short explanations, and summaries written for your specific focus.
 
-```bash
-python -m app.cli create_user you@example.com yourpassword "Your Name"
-```
+That means the inbox is not just full. It is pointed.
 
-### 6. Run both services
+## Who It Is For
 
-```bash
-# Terminal 1 — Web server
-uvicorn app.main:app --reload --port 8000
+SmartDigest is for builders, students, researchers, founders, engineers, analysts, and curious people who need to keep up with a moving field.
 
-# Terminal 2 — Background worker
-python worker.py
-```
+It is especially useful if you:
 
-Open **http://localhost:8000** and log in.
+- Follow technical or fast-moving industries
+- Need to track a topic over time
+- Want the important pieces without checking every source manually
+- Care about why something matters, not just what happened
+- Prefer a small, useful briefing over an endless feed
 
----
+## The Experience
 
-## ☁️ Deploying on Railway
+You sign in.
 
-SmartDigest splits into two Railway services — each with its own `railway.toml`.
+You create a briefing.
 
-### Step 1 — Set up the project
+You describe your intent.
 
-1. Create a new Railway project
-2. Add the **PostgreSQL** plugin → `DATABASE_URL` auto-injected
-3. Add the **Redis** plugin → `REDIS_URL` auto-injected
-4. Add a **GitHub service** (your repo) → name it **web**
-5. Add a second **GitHub service** (same repo) → name it **worker**
+You choose sources.
 
-### Step 2 — Point each service to its config file
+SmartDigest watches for new content.
 
-| Service | Config File Path in Railway Settings |
-|---|---|
-| web | `services/web/railway.toml` |
-| worker | `services/worker/railway.toml` |
+When it finds useful articles, it sends you a concise email with relevance scores, source links, and summaries.
 
-### Step 3 — Environment variables (both services)
+You can open the dashboard any time to manage briefings, inspect past runs, and trigger a new digest.
 
-| Variable | Value |
-|---|---|
-| `DATABASE_URL` | Auto-injected by Railway Postgres |
-| `REDIS_URL` | Auto-injected by Railway Redis |
-| `LLM_API_KEY` | Your Google AI Studio key |
-| `LLM_RELEVANCE_MODELS` | Comma-separated fallback chain for relevance scoring |
-| `LLM_SUMMARY_MODELS` | Comma-separated fallback chain for summarisation |
-| `RESEND_API_KEY` | Your Resend key |
-| `RESEND_FROM_EMAIL` | Your verified sender email |
-| `JWT_SECRET` | Random secret — `openssl rand -hex 32` |
-| `ENV` | `production` |
+The product is meant to feel quiet and useful: less dashboard theater, more "here is what matters today."
 
-Legacy `GEMINI_API_KEY`, `GEMINI_RELEVANCE_MODELS`, and `GEMINI_SUMMARY_MODELS`
-are still accepted for existing deployments, but new environments should use
-the `LLM_*` names.
+## What Makes It Powerful
 
-### Step 4 — Deploy
+SmartDigest is intent-aware.
 
-Push to GitHub. Railway runs `alembic upgrade head && python -m app.cli seed_sources` automatically before starting — the database is always up to date on every deploy.
+Your briefing is not just a keyword search. It carries your goal through the whole pipeline, so article selection and summarization are guided by what you actually asked for.
 
----
+SmartDigest is selective.
 
-## 📡 API Reference
+It is designed to say no. Articles can be filtered out before they reach your inbox, which keeps the final digest tighter and more trustworthy.
 
-Authentication uses httpOnly JWT session cookies set at login. All API endpoints under `/api/v1/` require an active session.
+SmartDigest is explainable.
 
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `POST` | `/auth/register` | ✗ | Create a new account |
-| `POST` | `/auth/login` | ✗ | Log in — sets `sd_session` cookie |
-| `POST` | `/auth/logout` | ✓ | Log out — clears cookie |
-| `GET` | `/api/v1/sources` | ✗ | List all curated RSS sources |
-| `POST` | `/api/v1/briefings` | ✓ | Create a briefing |
-| `GET` | `/api/v1/briefings` | ✓ | List your briefings |
-| `GET` | `/api/v1/briefings/{id}` | ✓ | Get a single briefing |
-| `PATCH` | `/api/v1/briefings/{id}` | ✓ | Update a briefing |
-| `DELETE` | `/api/v1/briefings/{id}` | ✓ | Soft-delete a briefing |
-| `POST` | `/api/v1/briefings/{id}/trigger` | ✓ | Manually trigger pipeline (3/hour) |
-| `GET` | `/api/v1/digests` | ✓ | List digests |
-| `GET` | `/api/v1/digests/{id}` | ✓ | Digest detail with articles |
-| `GET` | `/api/v1/metrics/pipeline` | ✓ | 24h pipeline stats |
-| `GET` | `/jobs/{job_id}` | ✓ | Poll background job status |
+Each article can carry a relevance score and reason, so you can see why it made the cut.
 
-Interactive API explorer: **[/docs](https://smartdigest-production.up.railway.app/docs)**
+SmartDigest is automated.
 
----
+Scheduled briefings keep running without you needing to check feeds manually.
 
-## 📁 Project Structure
+SmartDigest is inspectable.
 
-```
-SmartDigest/
-├── app/
-│   ├── api/
-│   │   ├── auth.py          # Register, login, logout
-│   │   ├── briefings.py     # Full CRUD + trigger endpoint
-│   │   ├── digests.py       # Digest list + detail
-│   │   ├── jobs.py          # ARQ job status polling
-│   │   ├── metrics.py       # Pipeline health aggregates
-│   │   └── sources.py       # Curated source listing
-│   │
-│   ├── middleware/
-│   │   ├── auth.py          # JWT cookie middleware + bfcache headers
-│   │   └── rate_limit.py    # slowapi limiter setup
-│   │
-│   ├── models/              # SQLAlchemy 2.0 ORM models
-│   │   ├── user.py
-│   │   ├── briefing.py      # Core entity — intent + sources + schedule
-│   │   ├── digest.py
-│   │   ├── digest_item.py
-│   │   ├── pipeline_event.py
-│   │   └── curated_source.py
-│   │
-│   ├── schemas/             # Pydantic request/response models
-│   │
-│   ├── services/
-│   │   ├── auth.py          # bcrypt hashing + JWT creation/verification
-│   │   ├── fetcher.py       # Concurrent multi-source article fetching
-│   │   ├── intent.py        # Intent context builder
-│   │   ├── mailer.py        # Resend email delivery
-│   │   ├── metrics.py       # SQL aggregates from pipeline_events
-│   │   ├── scheduler.py     # ARQ job: full pipeline (fetch→filter→summarise→deliver)
-│   │   ├── summariser.py    # Intent-aware batch summarisation
-│   │   ├── llm/             # Shared Google GenAI provider layer
-│   │   │
-│   │   ├── filters/
-│   │   │   ├── bm25.py          # BM25 lexical pre-filter
-│   │   │   ├── heuristic.py     # Legacy keyword-weighted pre-filter
-│   │   │   └── llm_relevance.py # LLM 1–10 relevance scoring
-│   │   │
-│   │   └── scrapers/
-│   │       ├── base.py          # BaseScraper interface + RawArticle dataclass
-│   │       ├── hackernews.py    # Full-text HN scraper (trafilatura)
-│   │       └── rss_generic.py  # Generic feedparser-based scraper
-│   │
-│   ├── config.py            # Pydantic Settings (all env vars)
-│   ├── database.py          # Async engine + session factory
-│   ├── main.py              # FastAPI app factory + HTML routes
-│   └── cli.py               # Management commands
-│
-├── templates/               # Jinja2 + HTMX templates
-│   ├── base.html            # Layout: sidebar, mobile nav, bfcache defence
-│   ├── dashboard.html       # Briefing cards + recent digests + create drawer
-│   ├── digest_detail.html   # Per-digest article view
-│   ├── digests.html         # Full digest history
-│   ├── metrics.html         # Pipeline observability page
-│   ├── login.html
-│   └── partials/
-│       ├── briefing_card.html    # HTMX-swappable card
-│       ├── digest_row.html
-│       ├── metrics_panel.html    # Polled every 5s
-│       └── metrics_full.html
-│
-├── alembic/                 # Database migrations (async-configured)
-│   └── versions/
-│
-├── services/
-│   ├── web/railway.toml     # Railway web service config
-│   └── worker/railway.toml  # Railway worker service config
-│
-├── worker.py                # ARQ worker entrypoint + cron registration
-├── requirements.txt
-└── Procfile                 # Fallback for single-service deployments
-```
+Run history and pipeline status make it clear whether a digest was queued, processed, delivered, skipped, or failed.
 
----
+## What You Get In Each Digest
 
-## 🧠 Design Decisions
+A SmartDigest email can include:
 
-**Intent context propagates through the entire pipeline**  
-Most digest tools summarise articles generically. SmartDigest passes the user's `intent_description`, `keywords`, and `example_articles` to both the LLM filter and the summariser. The model is prompted to act as a *knowledgeable advisor*, not a compression algorithm.
+- The most relevant articles found for your briefing
+- A relevance score for each article
+- The source each article came from
+- A link to the original piece
+- A concise summary focused on your intent
+- A digest history entry in the dashboard
 
-**Two-stage filtering minimises cost without sacrificing quality**  
-The BM25 lexical filter runs first for free, with hard exclusion keywords applied before ranking. Only the strongest lexical candidates are scored by the LLM. This keeps Gemini API usage proportional to likely relevance, not feed volume.
+The email is built to be read quickly, but still give you enough context to decide what deserves a deeper read.
 
-**Coverage-first retrieval**
-Fetch uses the last delivered digest timestamp as its lower bound and avoids global pre-ranking caps. BM25 then ranks the full time-window candidate set generously, so the LLM is reserved for final intent-aware precision instead of compensating for missed fetch coverage.
+## Product Philosophy
 
-**Shared LLM provider layer**
-SmartDigest keeps provider details in `app/services/llm/`. Relevance scoring and summarisation ask for structured JSON through the official Google GenAI SDK, so retry policy, fallback models, API-key handling, and response parsing live in one place.
+SmartDigest is not trying to replace reading.
 
-**Batched summarisation**
-Articles are summarised in configurable batches. This keeps prompt sizes predictable while still using Gemini's context window efficiently.
+It is trying to protect reading.
 
-**Model fallback chain**  
-SmartDigest tries `gemini-2.5-flash-lite` first, then falls back to `gemini-2.5-flash`. The same fallback policy is shared by relevance scoring and summarisation, and can be changed with environment variables without editing code.
+The internet produces more interesting material than any one person can process. The hard part is no longer finding content. The hard part is deciding what deserves attention.
 
-**Decoupled worker**  
-The web server never waits on pipeline work. A trigger enqueues a job to Redis and returns `202 Accepted` in milliseconds. The worker picks it up asynchronously. Both services share only the queue and the database — they can be scaled, restarted, or redeployed independently.
+SmartDigest helps with that decision.
 
-**Cookie-based JWT auth**  
-SmartDigest is browser-first (Jinja2 + HTMX), so `httpOnly` cookies are the natural auth mechanism. They're sent automatically on every request without any JavaScript, and `SameSite=Lax` protects against CSRF on navigations.
+It gives you a first pass that is tireless, consistent, and tuned to your goals. You still choose what to think about. SmartDigest just clears the path.
 
-**Purpose-built HN scraper**  
-Hacker News RSS feeds contain only titles and links. The dedicated `HackerNewsScraper` fetches each linked article and extracts full body text using `trafilatura`, dramatically improving summarisation quality for HN sources.
+## Current Shape
 
-## 🗺️ Roadmap
+SmartDigest currently supports:
 
-- [ ] Webhook delivery on digest completion (HMAC-SHA256 signed)
-- [ ] Per-briefing custom LLM prompt overrides
-- [ ] Slack / Discord delivery channel
-- [ ] CSV export of digest history
-- [ ] Per-user rate-limit dashboard
-- [ ] Custom RSS source addition (beyond curated list)
-- [ ] Unit + integration test suite (pytest-asyncio)
+- User accounts
+- Briefing creation and editing
+- Curated content sources
+- Intent descriptions
+- Keywords and exclusion keywords
+- Manual "Run Now" digests
+- Scheduled digest delivery
+- AI relevance filtering
+- AI summarization
+- Email delivery
+- Digest history
+- Pipeline status tracking
 
----
+The product is already more than a demo idea. It is a working briefing system with a real background pipeline, real delivery flow, and real user-facing dashboard.
 
-## 📄 License
+## The Short Version
 
-MIT — see [LICENSE](LICENSE)
+SmartDigest helps you keep up with what matters.
 
----
+Tell it what you care about. Pick your sources. Let it watch the web. Get a focused briefing instead of a pile of links.
 
-<div align="center">
-
-Built with ☕ by [Burhan Ahmad Khan](https://github.com/BuriAhmad)
-
-⭐ Star this repo if you found it useful
+It is built for signal, context, and calm.
