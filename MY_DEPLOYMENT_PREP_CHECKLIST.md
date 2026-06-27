@@ -191,19 +191,20 @@ The current repo sends digest emails with Resend.
 - Create or choose a Resend account.
 - Verify a sending domain or sender email.
 - Create a Resend API key.
-- Decide the production sender address.
+- Use the verified production sender `SmartDigest <digest@smartdigest.app>`.
 
 Values to provide back to Codex:
 
 ```text
 RESEND_API_KEY secret name or value=
-RESEND_FROM_EMAIL=
+RESEND_FROM_EMAIL=SmartDigest <digest@smartdigest.app>
 ```
 
 Important:
 
 - If `RESEND_API_KEY` is missing, the current app logs email content and returns success in dev mode.
 - For production, use a real key so digests actually send.
+- Set both `RESEND_API_KEY` and `RESEND_FROM_EMAIL` on the web and worker deployments; the worker sends digest emails and matching env keeps delivery behavior consistent.
 
 ## 8. App Secrets And Production Environment Values
 
@@ -216,7 +217,7 @@ DATABASE_URL=
 REDIS_URL=
 LLM_API_KEY=
 RESEND_API_KEY=
-RESEND_FROM_EMAIL=
+RESEND_FROM_EMAIL=SmartDigest <digest@smartdigest.app>
 FIREBASE_SERVICE_ACCOUNT_JSON=
 FIREBASE_WEB_API_KEY=
 FIREBASE_WEB_AUTH_DOMAIN=
@@ -304,7 +305,7 @@ LLM_RELEVANCE_MODELS=
 LLM_SUMMARY_MODELS=
 
 RESEND_API_KEY secret name or value=
-RESEND_FROM_EMAIL=
+RESEND_FROM_EMAIL=SmartDigest <digest@smartdigest.app>
 
 JWT_SECRET secret name or value=
 

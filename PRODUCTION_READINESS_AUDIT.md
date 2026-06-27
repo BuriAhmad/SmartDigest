@@ -214,7 +214,7 @@ FIREBASE_WEB_APP_ID=
 FIREBASE_WEB_MEASUREMENT_ID=
 
 RESEND_API_KEY=
-RESEND_FROM_EMAIL=
+RESEND_FROM_EMAIL=SmartDigest <digest@smartdigest.app>
 
 SEMANTIC_RETRIEVAL_ENABLED=true
 SEMANTIC_WARMUP_ENABLED=false
@@ -617,6 +617,7 @@ Tests:
 - Runs no migrations or seed commands at startup.
 - Uses `ENV=production`.
 - Reads Neon, Upstash, Firebase, Gemini, Resend, and JWT secrets from env/Secret Manager.
+- Set both `RESEND_API_KEY` and `RESEND_FROM_EMAIL=SmartDigest <digest@smartdigest.app>`.
 - Suggested initial resources: 512 MiB to 1 GiB memory, 1 CPU, concurrency 20 to 40, conservative max instances.
 
 ### Worker Service Or Job
@@ -630,6 +631,7 @@ Current best fit: separate long-running Cloud Run worker service after a small f
 - Set min instances 1.
 - Set CPU always allocated.
 - Keep worker concurrency low.
+- Set both `RESEND_API_KEY` and `RESEND_FROM_EMAIL=SmartDigest <digest@smartdigest.app>`; the worker is the process that sends digest emails.
 - Use the same image as web if practical, but with a different command.
 
 Do not deploy current `python worker.py` as a plain Cloud Run service without a port listener.
@@ -668,5 +670,6 @@ Do not deploy current `python worker.py` as a plain Cloud Run service without a 
 ### Email
 
 - Store `RESEND_API_KEY` in Secret Manager.
-- Set `RESEND_FROM_EMAIL` to a verified sender.
+- Set `RESEND_FROM_EMAIL` to `SmartDigest <digest@smartdigest.app>`.
+- Inject both Resend env vars into both web and worker services, even though the worker performs digest delivery.
 - Treat missing Resend key as a production deployment failure.

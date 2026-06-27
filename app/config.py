@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     LLM_SUMMARY_ARTICLE_MAX_CHARS: int = 1800
     GEMINI_API_KEY: str = ""
     RESEND_API_KEY: str = ""
-    RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
+    RESEND_FROM_EMAIL: str = "SmartDigest <digest@smartdigest.app>"
     JWT_SECRET: str = "dev-secret-change-in-production-abc123"
     ENV: str = "development"
     FIREBASE_SERVICE_ACCOUNT_PATH: str = "~/.config/smartdigest/firebase/firebase-admin-service-account.json"
