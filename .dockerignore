@@ -36,3 +36,4 @@ lovable_prompt.txt
 
 scripts/*
 !scripts/run_release_tasks.sh
+!scripts/download_models.py

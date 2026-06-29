@@ -50,6 +50,8 @@ class FilterPipeline:
             min_score=settings.SEMANTIC_MIN_SCORE,
             article_max_chars=settings.SEMANTIC_ARTICLE_MAX_CHARS,
             enabled=settings.SEMANTIC_RETRIEVAL_ENABLED,
+            local_files_only=settings.SEMANTIC_MODEL_LOCAL_FILES_ONLY,
+            load_timeout_seconds=settings.SEMANTIC_MODEL_LOAD_TIMEOUT_SECONDS,
         )
         self.reranker = CrossEncoderReranker(
             query_text=reranker_query_text,

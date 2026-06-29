@@ -4,10 +4,15 @@ Run with: python worker.py
 Includes cron job for scheduled digest delivery at 06:00 UTC daily.
 """
 
+import asyncio
+
+import structlog
 from arq import cron, run_worker
 from arq.connections import RedisSettings
 
 from app.config import get_settings
+from app.services.filters.reranker import warm_reranker_model
+from app.services.filters.semantic import warm_semantic_model
 from app.services.scheduler import (
     enqueue_scheduled_digests,
     recover_queued_digests,
@@ -15,6 +20,7 @@ from app.services.scheduler import (
 )
 
 settings = get_settings()
+logger = structlog.get_logger()
 
 
 class WorkerSettings:
@@ -45,5 +51,24 @@ class WorkerSettings:
     ]
 
 
+async def _preload_enabled_models() -> None:
+    if settings.is_production and settings.SEMANTIC_RETRIEVAL_ENABLED:
+        warmed = await warm_semantic_model(settings.SEMANTIC_MODEL_NAME)
+        logger.info(
+            "semantic.model_ready",
+            model_name=settings.SEMANTIC_MODEL_NAME,
+            warmed=warmed,
+        )
+
+    if settings.is_production and settings.RERANKER_ENABLED:
+        warmed = await warm_reranker_model(settings.RERANKER_MODEL_NAME)
+        logger.info(
+            "reranker.model_ready",
+            model_name=settings.RERANKER_MODEL_NAME,
+            warmed=warmed,
+        )
+
+
 if __name__ == "__main__":
+    asyncio.run(_preload_enabled_models())
     run_worker(WorkerSettings)

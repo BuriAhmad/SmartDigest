@@ -2,11 +2,12 @@
 
 import asyncio
 import math
-import os
 import re
 from typing import Dict, Iterable, List, Optional, Pattern
 
 import structlog
+
+from app.config import get_settings
 
 logger = structlog.get_logger()
 
@@ -25,6 +26,8 @@ class SemanticRetriever:
         min_score: float = 0.2,
         article_max_chars: int = 1800,
         enabled: bool = True,
+        local_files_only: bool = True,
+        load_timeout_seconds: float = 5.0,
         model: Optional[object] = None,
     ):
         self.query_text = (query_text or "").strip()
@@ -36,6 +39,8 @@ class SemanticRetriever:
         self.min_score = min_score
         self.article_max_chars = article_max_chars
         self.enabled = enabled
+        self.local_files_only = local_files_only
+        self.load_timeout_seconds = load_timeout_seconds
         self.model = model
         self._excl_patterns = [
             self._compile_precise_pattern(kw) for kw in self.exclusion_keywords
@@ -49,7 +54,7 @@ class SemanticRetriever:
         if not candidates:
             return []
 
-        model = self.model or await self._load_model()
+        model = self.model or await self._load_model(raise_on_failure=True)
         if model is None:
             return []
 
@@ -95,7 +100,7 @@ class SemanticRetriever:
         )
         return selected
 
-    async def _load_model(self) -> Optional[object]:
+    async def _load_model(self, raise_on_failure: bool = False) -> Optional[object]:
         if self.model_name in _MODEL_CACHE:
             return _MODEL_CACHE[self.model_name]
 
@@ -103,19 +108,15 @@ class SemanticRetriever:
             from sentence_transformers import SentenceTransformer
         except Exception as exc:
             logger.warning("semantic.dependency_missing", error=str(exc))
+            if raise_on_failure:
+                raise RuntimeError(
+                    f"Semantic model dependency unavailable: {self.model_name}"
+                ) from exc
             return None
-
-        from app.config import get_settings
-
-        settings = get_settings()
         try:
             model = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self._build_sentence_transformer,
-                    SentenceTransformer,
-                    settings.SEMANTIC_MODEL_LOCAL_FILES_ONLY,
-                ),
-                timeout=settings.SEMANTIC_MODEL_LOAD_TIMEOUT_SECONDS,
+                asyncio.to_thread(self._build_sentence_transformer, SentenceTransformer),
+                timeout=self.load_timeout_seconds,
             )
         except Exception as exc:
             logger.warning(
@@ -123,39 +124,26 @@ class SemanticRetriever:
                 model_name=self.model_name,
                 error=str(exc),
             )
+            if raise_on_failure:
+                raise RuntimeError(
+                    "Semantic model unavailable in local cache. "
+                    f"Build the image with {self.model_name} baked in and keep "
+                    "SEMANTIC_MODEL_LOCAL_FILES_ONLY=true in production."
+                ) from exc
             return None
 
         _MODEL_CACHE[self.model_name] = model
         return model
 
-    def _build_sentence_transformer(
-        self,
-        sentence_transformer_cls,
-        local_files_only: bool,
-    ) -> object:
-        model_source = self._resolve_model_source(local_files_only)
-        return sentence_transformer_cls(model_source)
-
-    def _resolve_model_source(self, local_files_only: bool) -> str:
-        if not local_files_only or os.path.isdir(self.model_name):
-            return self.model_name
-
-        try:
-            from huggingface_hub import snapshot_download
-        except Exception as exc:
-            raise RuntimeError(
-                "huggingface_hub is required for cache-only semantic model loading"
-            ) from exc
-
-        try:
-            return snapshot_download(
-                repo_id=self.model_name,
-                local_files_only=True,
-            )
-        except Exception as exc:
-            raise RuntimeError(
-                f"Semantic model is not available in the local cache: {self.model_name}"
-            ) from exc
+    def _build_sentence_transformer(self, sentence_transformer_cls) -> object:
+        settings = get_settings()
+        kwargs = {
+            "local_files_only": self.local_files_only,
+        }
+        cache_folder = settings.SENTENCE_TRANSFORMERS_HOME or settings.HF_HOME
+        if cache_folder:
+            kwargs["cache_folder"] = cache_folder
+        return sentence_transformer_cls(self.model_name, **kwargs)
 
     def _is_excluded(self, article: Dict) -> bool:
         haystack = " ".join([
@@ -198,11 +186,13 @@ class SemanticRetriever:
 
 
 async def warm_semantic_model(model_name: str) -> bool:
-    """Load and cache a semantic model during startup.
-
-    Returns True when the model is available in cache after warmup, and False
-    when loading is skipped or fails.
-    """
-    retriever = SemanticRetriever(query_text="startup warmup", model_name=model_name)
-    model = await retriever._load_model()
+    """Load and cache a semantic model during startup or image build."""
+    settings = get_settings()
+    retriever = SemanticRetriever(
+        query_text="startup warmup",
+        model_name=model_name,
+        local_files_only=settings.SEMANTIC_MODEL_LOCAL_FILES_ONLY,
+        load_timeout_seconds=settings.SEMANTIC_MODEL_LOAD_TIMEOUT_SECONDS,
+    )
+    model = await retriever._load_model(raise_on_failure=True)
     return model is not None

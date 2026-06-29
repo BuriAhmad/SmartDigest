@@ -1600,31 +1600,24 @@ class SemanticRetrievalTests(unittest.IsolatedAsyncioTestCase):
                 constructed.append((args, kwargs))
 
         settings = SimpleNamespace(
-            SEMANTIC_MODEL_LOCAL_FILES_ONLY=True,
-            SEMANTIC_MODEL_LOAD_TIMEOUT_SECONDS=1.0,
+            SENTENCE_TRANSFORMERS_HOME="/tmp/st-home",
+            HF_HOME="/tmp/hf-home",
         )
 
-        with patch("app.config.get_settings", return_value=settings), \
-             patch(
-                 "huggingface_hub.snapshot_download",
-                 return_value="/tmp/cached-semantic-model",
-             ) as snapshot_mock, \
-             patch(
-                 "sentence_transformers.SentenceTransformer",
-                 FakeSentenceTransformer,
-             ):
+        with patch("app.services.filters.semantic.get_settings", return_value=settings), \
+             patch("sentence_transformers.SentenceTransformer", FakeSentenceTransformer):
             retriever = SemanticRetriever(
                 query_text="AI governance",
                 model_name="sentence-transformers/test-model",
+                local_files_only=True,
             )
             model = await retriever._load_model()
 
         self.assertIsInstance(model, FakeSentenceTransformer)
-        snapshot_mock.assert_called_once_with(
-            repo_id="sentence-transformers/test-model",
-            local_files_only=True,
-        )
-        self.assertEqual(constructed, [(("/tmp/cached-semantic-model",), {})])
+        self.assertEqual(constructed, [(("sentence-transformers/test-model",), {
+            "local_files_only": True,
+            "cache_folder": "/tmp/st-home",
+        })])
 
     async def test_semantic_model_loader_fails_soft_when_local_cache_is_missing(self):
         class FakeSentenceTransformer:
@@ -1632,22 +1625,16 @@ class SemanticRetrievalTests(unittest.IsolatedAsyncioTestCase):
                 raise AssertionError("model constructor should not run")
 
         settings = SimpleNamespace(
-            SEMANTIC_MODEL_LOCAL_FILES_ONLY=True,
-            SEMANTIC_MODEL_LOAD_TIMEOUT_SECONDS=1.0,
+            SENTENCE_TRANSFORMERS_HOME="/tmp/st-home",
+            HF_HOME="/tmp/hf-home",
         )
 
-        with patch("app.config.get_settings", return_value=settings), \
-             patch(
-                 "huggingface_hub.snapshot_download",
-                 side_effect=RuntimeError("cache miss"),
-             ), \
-             patch(
-                 "sentence_transformers.SentenceTransformer",
-                 FakeSentenceTransformer,
-             ):
+        with patch("app.services.filters.semantic.get_settings", return_value=settings), \
+             patch("sentence_transformers.SentenceTransformer", FakeSentenceTransformer):
             retriever = SemanticRetriever(
                 query_text="AI governance",
                 model_name="sentence-transformers/missing-model",
+                local_files_only=True,
             )
             model = await retriever._load_model()
 

@@ -20,6 +20,7 @@ from app.database import get_db
 from app.middleware.auth import SessionAuthMiddleware
 from app.middleware.rate_limit import limiter
 from app.services.auth import verify_session_token
+from app.services.filters.reranker import warm_reranker_model
 from app.services.filters.semantic import warm_semantic_model
 
 
@@ -231,22 +232,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     configure_logging()
     logger.info("app.starting", env=settings.ENV)
 
-    if settings.SEMANTIC_RETRIEVAL_ENABLED and settings.SEMANTIC_WARMUP_ENABLED:
-        try:
-            warmed = await warm_semantic_model(settings.SEMANTIC_MODEL_NAME)
-            logger.info(
-                "semantic.warmup_complete",
-                model_name=settings.SEMANTIC_MODEL_NAME,
-                warmed=warmed,
-            )
-        except Exception as exc:
-            logger.warning(
-                "semantic.warmup_failed",
-                model_name=settings.SEMANTIC_MODEL_NAME,
-                error=str(exc),
-            )
-    elif settings.SEMANTIC_RETRIEVAL_ENABLED:
-        logger.info("semantic.warmup_skipped", reason="SEMANTIC_WARMUP_ENABLED is false")
+    if settings.is_production and settings.SEMANTIC_RETRIEVAL_ENABLED:
+        warmed = await warm_semantic_model(settings.SEMANTIC_MODEL_NAME)
+        logger.info(
+            "semantic.model_ready",
+            model_name=settings.SEMANTIC_MODEL_NAME,
+            warmed=warmed,
+        )
+
+    if settings.is_production and settings.RERANKER_ENABLED:
+        warmed = await warm_reranker_model(settings.RERANKER_MODEL_NAME)
+        logger.info(
+            "reranker.model_ready",
+            model_name=settings.RERANKER_MODEL_NAME,
+            warmed=warmed,
+        )
 
     yield
 

@@ -83,6 +83,9 @@ class Settings(BaseSettings):
     FIREBASE_WEB_MESSAGING_SENDER_ID: str = "1001561444383"
     FIREBASE_WEB_APP_ID: str = "1:1001561444383:web:dccd126eb03ed93b53852a"
     FIREBASE_WEB_MEASUREMENT_ID: str = "G-DPBDKNSEQX"
+    HF_HOME: str = "/opt/models/huggingface"
+    TRANSFORMERS_CACHE: str = "/opt/models/huggingface/transformers"
+    SENTENCE_TRANSFORMERS_HOME: str = "/opt/models/sentence-transformers"
     SEMANTIC_RETRIEVAL_ENABLED: bool = True
     SEMANTIC_WARMUP_ENABLED: bool = False
     SEMANTIC_MODEL_LOCAL_FILES_ONLY: bool = True
@@ -96,7 +99,7 @@ class Settings(BaseSettings):
     RERANKER_ENABLED: bool = True
     RERANKER_REQUIRED: bool = True
     RERANKER_WARMUP_ENABLED: bool = False
-    RERANKER_MODEL_LOCAL_FILES_ONLY: bool = False
+    RERANKER_MODEL_LOCAL_FILES_ONLY: bool = True
     RERANKER_MODEL_LOAD_TIMEOUT_SECONDS: float = 45.0
     RERANKER_MODEL_NAME: str = "cross-encoder/ettin-reranker-68m-v1"
     RERANKER_TOP_K: int = 10
@@ -129,6 +132,7 @@ class Settings(BaseSettings):
         self.DATABASE_URL = normalise_database_url(self.DATABASE_URL)
         if self.is_production:
             self._validate_production_database_url()
+            self._validate_production_model_config()
             if self.APP_ROLE in {"all", "web", "worker"}:
                 self._validate_production_redis_url()
             if self.APP_ROLE in {"all", "web"}:
@@ -158,6 +162,16 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Production REDIS_URL should use rediss:// for TLS; set "
                 "ALLOW_INSECURE_PRODUCTION_REDIS=true only for an intentional exception"
+            )
+
+    def _validate_production_model_config(self) -> None:
+        if self.SEMANTIC_RETRIEVAL_ENABLED and not self.SEMANTIC_MODEL_LOCAL_FILES_ONLY:
+            raise ValueError(
+                "Production semantic retrieval must use local-only model loading"
+            )
+        if self.RERANKER_ENABLED and not self.RERANKER_MODEL_LOCAL_FILES_ONLY:
+            raise ValueError(
+                "Production reranker must use local-only model loading"
             )
 
     def _validate_production_web_config(self) -> None:

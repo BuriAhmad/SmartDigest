@@ -1,10 +1,11 @@
 """Cross-encoder reranker for the pre-LLM relevance stage."""
 
 import asyncio
-import os
 from typing import Dict, List, Optional
 
 import structlog
+
+from app.config import get_settings
 
 logger = structlog.get_logger()
 
@@ -26,7 +27,7 @@ class CrossEncoderReranker:
         batch_size: int = 8,
         enabled: bool = True,
         required: bool = True,
-        local_files_only: bool = False,
+        local_files_only: bool = True,
         load_timeout_seconds: float = 30.0,
         model: Optional[object] = None,
     ):
@@ -117,7 +118,7 @@ class CrossEncoderReranker:
         )
         return selected
 
-    async def _load_model(self) -> Optional[object]:
+    async def _load_model(self, raise_on_failure: bool = False) -> Optional[object]:
         if self.model_name in _MODEL_CACHE:
             return _MODEL_CACHE[self.model_name]
 
@@ -125,6 +126,10 @@ class CrossEncoderReranker:
             from sentence_transformers import CrossEncoder
         except Exception as exc:
             logger.warning("reranker.dependency_missing", error=str(exc))
+            if raise_on_failure:
+                raise RuntimeError(
+                    f"Reranker dependency unavailable: {self.model_name}"
+                ) from exc
             return None
 
         try:
@@ -138,35 +143,26 @@ class CrossEncoderReranker:
                 model_name=self.model_name,
                 error=str(exc),
             )
+            if raise_on_failure:
+                raise RuntimeError(
+                    "Reranker model unavailable in local cache. "
+                    f"Build the image with {self.model_name} baked in and keep "
+                    "RERANKER_MODEL_LOCAL_FILES_ONLY=true in production."
+                ) from exc
             return None
 
         _MODEL_CACHE[self.model_name] = model
         return model
 
     def _build_cross_encoder(self, cross_encoder_cls):
-        model_source = self._resolve_model_source()
-        return cross_encoder_cls(model_source)
-
-    def _resolve_model_source(self) -> str:
-        if not self.local_files_only or os.path.isdir(self.model_name):
-            return self.model_name
-
-        try:
-            from huggingface_hub import snapshot_download
-        except Exception as exc:
-            raise RuntimeError(
-                "huggingface_hub is required for cache-only reranker loading"
-            ) from exc
-
-        try:
-            return snapshot_download(
-                repo_id=self.model_name,
-                local_files_only=True,
-            )
-        except Exception as exc:
-            raise RuntimeError(
-                f"Reranker model is not available in the local cache: {self.model_name}"
-            ) from exc
+        settings = get_settings()
+        kwargs = {
+            "local_files_only": self.local_files_only,
+        }
+        cache_folder = settings.SENTENCE_TRANSFORMERS_HOME or settings.HF_HOME
+        if cache_folder:
+            kwargs["cache_folder"] = cache_folder
+        return cross_encoder_cls(self.model_name, **kwargs)
 
     def _select(self, scored: List[Dict]) -> List[Dict]:
         if len(scored) <= self.min_keep:
@@ -208,7 +204,13 @@ class CrossEncoderReranker:
 
 
 async def warm_reranker_model(model_name: str) -> bool:
-    """Load and cache the reranker model during startup when configured."""
-    reranker = CrossEncoderReranker(query_text="startup warmup", model_name=model_name)
-    model = await reranker._load_model()
+    """Load and cache the reranker model during startup or image build."""
+    settings = get_settings()
+    reranker = CrossEncoderReranker(
+        query_text="startup warmup",
+        model_name=model_name,
+        local_files_only=settings.RERANKER_MODEL_LOCAL_FILES_ONLY,
+        load_timeout_seconds=settings.RERANKER_MODEL_LOAD_TIMEOUT_SECONDS,
+    )
+    model = await reranker._load_model(raise_on_failure=True)
     return model is not None
