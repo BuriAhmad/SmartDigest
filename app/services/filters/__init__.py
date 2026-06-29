@@ -29,7 +29,6 @@ class FilterPipeline:
         semantic_query: Optional[str] = None,
         lexical_threshold: float = 0.02,
         lexical_top_k: Optional[int] = None,
-        llm_threshold: int = 5,
     ):
         settings = get_settings()
         self.union_max_k = settings.RETRIEVAL_UNION_MAX_K
@@ -68,7 +67,6 @@ class FilterPipeline:
         )
         self.llm_filter = LLMRelevanceFilter(
             intent_context=intent_context,
-            threshold=llm_threshold,
         )
 
     async def run(self, articles: List[Dict]) -> List[Dict]:
@@ -83,8 +81,9 @@ class FilterPipeline:
           - retrieval_channels: bm25/semantic channels that retrieved it
           - reranker_score: cross-encoder relevance score
           - reranker_rank: cross-encoder rank before LLM relevance
-          - llm_relevance_score: int 1-10 (only if it passed retrieval)
-          - llm_relevance_reason: str (only if it passed retrieval)
+          - llm_relevance_decision: PASS/FAIL from the final selection gate
+          - llm_relevance_score: int 1-10 from the final selection gate
+          - llm_relevance_reason: str explaining the final decision
         """
         log = logger.bind(total_articles=len(articles))
 

@@ -840,7 +840,7 @@ class RetrievalPipelineTests(unittest.IsolatedAsyncioTestCase):
         events = [item for item in fake_session.added if isinstance(item, PipelineEvent)]
         self.assertIn(("summarise", "failed"), [(event.stage, event.status) for event in events])
 
-    async def test_scheduler_skips_delivery_when_summariser_excludes_every_article(self):
+    async def test_scheduler_fails_when_summariser_does_not_preserve_article_count(self):
         briefing = make_briefing()
         fake_session = FakeSession(briefing)
         article = {
@@ -862,13 +862,16 @@ class RetrievalPipelineTests(unittest.IsolatedAsyncioTestCase):
              patch("app.services.scheduler.send_digest_email", AsyncMock()) as mail_mock:
             result = await run_pipeline({}, briefing.id)
 
-        self.assertEqual(result["status"], "skipped")
-        self.assertEqual(result["reason"], "No articles remained after summarisation")
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(
+            result["error"],
+            "Summarisation failed: expected exactly one summary per article",
+        )
         self.assertFalse(mail_mock.called)
         digest_items = [item for item in fake_session.added if isinstance(item, DigestItem)]
         self.assertEqual(digest_items, [])
         events = [item for item in fake_session.added if isinstance(item, PipelineEvent)]
-        self.assertIn(("deliver", "skipped"), [(event.stage, event.status) for event in events])
+        self.assertIn(("summarise", "failed"), [(event.stage, event.status) for event in events])
 
     async def test_scheduler_marks_digest_failed_when_email_delivery_fails(self):
         briefing = make_briefing()
@@ -1306,6 +1309,28 @@ class RuntimeCompatibilityTests(unittest.TestCase):
 
 
 class SummariserResilienceTests(unittest.IsolatedAsyncioTestCase):
+    def test_summariser_prompt_is_transformation_only(self):
+        from app.services.summariser import _build_batch_prompt
+
+        prompt = _build_batch_prompt(
+            [{
+                "title": "AI infrastructure update",
+                "url": "https://example.com/ai",
+                "source_url": "https://example.com/rss",
+                "raw_content": "Infrastructure spending increased.",
+                "llm_relevance_reason": "Directly addresses infrastructure spending.",
+            }],
+            intent_context="Track AI infrastructure spending",
+            topic="AI infrastructure",
+            article_content_max_chars=1200,
+        )
+
+        self.assertIn("already passed the final relevance gate", prompt)
+        self.assertIn("not a selection or filtering stage", prompt)
+        self.assertIn("Track AI infrastructure spending", prompt)
+        self.assertIn("Infrastructure spending increased.", prompt)
+        self.assertNotIn('"exclude"', prompt)
+
     async def test_summariser_batches_large_article_sets_before_calling_gemini(self):
         articles = [
             {
@@ -1359,7 +1384,7 @@ class SummariserResilienceTests(unittest.IsolatedAsyncioTestCase):
 
         with patch(
             "app.services.summariser.generate_json",
-            AsyncMock(return_value=[SummaryResult(index=1, summary="Useful update", exclude=False)]),
+            AsyncMock(return_value=[SummaryResult(index=1, summary="Useful update")]),
         ) as generate_mock:
             result = await _summarise_batch(
                 articles,
@@ -1372,8 +1397,88 @@ class SummariserResilienceTests(unittest.IsolatedAsyncioTestCase):
         config = generate_mock.call_args.kwargs["config"]
         self.assertEqual(config.models, ["gemini-2.5-flash-lite", "gemini-2.5-flash"])
 
+    async def test_summariser_does_not_honor_legacy_exclude_output(self):
+        from app.services.summariser import _summarise_batch
+
+        articles = [{
+            "title": "AI infrastructure update",
+            "url": "https://example.com/ai",
+            "raw_content": "AI infrastructure spending is rising.",
+        }]
+        settings = SimpleNamespace(
+            LLM_SUMMARY_MODELS="gemini-2.5-flash-lite",
+            LLM_REQUEST_TIMEOUT_SECONDS=30.0,
+            LLM_RETRY_ATTEMPTS=1,
+            LLM_RETRY_BACKOFF_SECONDS=0,
+            LLM_SUMMARY_ARTICLE_MAX_CHARS=1200,
+        )
+
+        with patch(
+            "app.services.summariser.generate_json",
+            AsyncMock(return_value=[{
+                "index": 1,
+                "summary": "Useful update",
+                "exclude": True,
+            }]),
+        ):
+            result = await _summarise_batch(
+                articles,
+                topic="AI infra",
+                intent_context="Track AI infrastructure spending",
+                settings=settings,
+            )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["summary"], "Useful update")
+
+    async def test_summariser_rejects_incomplete_results(self):
+        from app.services.summariser import _summarise_batch
+
+        articles = [
+            {"title": "Article 1", "raw_content": "First update."},
+            {"title": "Article 2", "raw_content": "Second update."},
+        ]
+        settings = SimpleNamespace(
+            LLM_SUMMARY_MODELS="gemini-2.5-flash-lite",
+            LLM_REQUEST_TIMEOUT_SECONDS=30.0,
+            LLM_RETRY_ATTEMPTS=1,
+            LLM_RETRY_BACKOFF_SECONDS=0,
+            LLM_SUMMARY_ARTICLE_MAX_CHARS=1200,
+        )
+
+        with patch(
+            "app.services.summariser.generate_json",
+            AsyncMock(return_value=[{"index": 1, "summary": "First summary."}]),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "missing summaries.*2"):
+                await _summarise_batch(
+                    articles,
+                    topic="AI infra",
+                    intent_context="Track AI infrastructure spending",
+                    settings=settings,
+                )
+
 
 class LLMProviderTests(unittest.IsolatedAsyncioTestCase):
+    def test_relevance_prompt_contains_final_gate_contract_and_article_context(self):
+        filter_ = LLMRelevanceFilter(
+            "Topic: AI safety\nIntent: Track concrete governance changes\nExclude: funding"
+        )
+        prompt = filter_._build_prompt([{
+            "title": "New model governance rules",
+            "source_url": "https://example.com/rss",
+            "url": "https://example.com/governance",
+            "raw_content": "Regulators published binding model evaluation rules.",
+        }])
+
+        self.assertIn("final relevance gate", prompt)
+        self.assertIn('"decision": exactly "PASS" or "FAIL"', prompt)
+        self.assertIn("Do not invent requirements", prompt)
+        self.assertIn("Track concrete governance changes", prompt)
+        self.assertIn("https://example.com/rss", prompt)
+        self.assertIn("https://example.com/governance", prompt)
+        self.assertIn("binding model evaluation rules", prompt)
+
     def test_configured_models_parses_fallback_chain(self):
         self.assertEqual(
             configured_models(" gemini-2.5-flash-lite, gemini-2.5-flash "),
@@ -1391,13 +1496,61 @@ class LLMProviderTests(unittest.IsolatedAsyncioTestCase):
 
         with patch(
             "app.services.filters.llm_relevance.generate_json",
-            AsyncMock(return_value=[RelevanceScore(index=1, score=8, reason="Matches intent")]),
+            AsyncMock(return_value=[RelevanceScore(
+                index=1,
+                decision="PASS",
+                score=8,
+                reason="Matches intent",
+            )]),
         ) as generate_mock:
             scores = await filter_._call_llm("prompt", expected_count=1, settings=settings)
 
+        self.assertEqual(scores[1]["decision"], "PASS")
         self.assertEqual(scores[1]["score"], 8)
         config = generate_mock.call_args.kwargs["config"]
         self.assertEqual(config.models, ["gemini-2.5-flash-lite", "gemini-2.5-flash"])
+
+    async def test_relevance_filter_uses_pass_fail_as_final_selection(self):
+        articles = [
+            {"title": "Direct match", "raw_content": "Relevant details."},
+            {"title": "Tangential match", "raw_content": "Broad overlap only."},
+        ]
+        filter_ = LLMRelevanceFilter("Track concrete AI governance changes")
+        decisions = {
+            1: {"decision": "PASS", "score": 7, "reason": "Directly useful."},
+            2: {"decision": "FAIL", "score": 5, "reason": "Only tangential."},
+        }
+
+        with patch(
+            "app.services.filters.llm_relevance.get_settings",
+            return_value=SimpleNamespace(LLM_API_KEY="test-key"),
+        ), patch.object(filter_, "_call_llm", AsyncMock(return_value=decisions)):
+            result = await filter_.score_and_filter(articles)
+
+        self.assertEqual(result, [articles[0]])
+        self.assertEqual(articles[0]["llm_relevance_decision"], "PASS")
+        self.assertEqual(articles[1]["llm_relevance_decision"], "FAIL")
+        self.assertEqual(articles[1]["llm_relevance_score"], 5)
+
+    async def test_relevance_filter_rejects_incomplete_decisions(self):
+        articles = [
+            {"title": "Article 1", "raw_content": "First update."},
+            {"title": "Article 2", "raw_content": "Second update."},
+        ]
+        filter_ = LLMRelevanceFilter("Track concrete AI governance changes")
+
+        with patch(
+            "app.services.filters.llm_relevance.get_settings",
+            return_value=SimpleNamespace(LLM_API_KEY="test-key"),
+        ), patch.object(
+            filter_,
+            "_call_llm",
+            AsyncMock(return_value={
+                1: {"decision": "PASS", "score": 7, "reason": "Directly useful."},
+            }),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "missing decisions.*2"):
+                await filter_.score_and_filter(articles)
 
     def test_worker_enables_bounded_arq_retries_for_retryable_digest_failures(self):
         from worker import WorkerSettings

@@ -9,11 +9,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /build
 
-COPY requirements.txt ./
+COPY requirements.cloudrun.txt ./
 
 RUN python -m venv "${VIRTUAL_ENV}" \
     && pip install --upgrade pip \
-    && pip install --no-compile -r requirements.txt \
+    && pip install --no-compile -r requirements.cloudrun.txt \
     && pip check
 
 

@@ -268,6 +268,10 @@ async def run_pipeline(ctx: dict, briefing_id: int, digest_id: Optional[int] = N
                 topic=briefing.topic,
                 intent_context=intent_context,
             )
+            if len(summarised_articles) != len(filtered_articles):
+                raise RuntimeError(
+                    "Summarisation failed: expected exactly one summary per article"
+                )
             summarise_ms = _now_ms() - summarise_start_ms
 
             session.add(PipelineEvent(
@@ -290,24 +294,6 @@ async def run_pipeline(ctx: dict, briefing_id: int, digest_id: Optional[int] = N
             )
             log.error("pipeline.summarise_error", error=str(exc))
             return {"status": "failed", "error": str(exc), "digest_id": digest_id}
-
-        if not summarised_articles:
-            session.add(PipelineEvent(
-                digest_id=digest_id,
-                stage="deliver",
-                status="skipped",
-                duration_ms=0,
-                error_msg="No digest delivered because summarisation excluded every article",
-                item_count=0,
-            ))
-            digest.status = "skipped"
-            await session.commit()
-            log.info("pipeline.no_summarised_articles")
-            return {
-                "status": "skipped",
-                "reason": "No articles remained after summarisation",
-                "digest_id": digest_id,
-            }
 
         # ── SAVE DIGEST ITEMS ─────────────────────────────────────
         for article in summarised_articles:

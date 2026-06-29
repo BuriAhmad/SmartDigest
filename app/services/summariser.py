@@ -7,7 +7,7 @@ and explaining why instead of just compressing the article.
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import structlog
 
 from app.config import get_settings
@@ -25,8 +25,7 @@ DEFAULT_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash"]
 
 class SummaryResult(BaseModel):
     index: int
-    summary: str = ""
-    exclude: bool = False
+    summary: str = Field(min_length=1)
 
 
 def _build_batch_prompt(
@@ -68,6 +67,8 @@ def _build_batch_prompt(
 
     return f"""You are a knowledgeable advisor for someone tracking a specific topic. You have read the articles below with their specific goal in mind. Your job is NOT to generically summarise each article - instead, you must extract what matters to THIS user and explain why.
 
+Every article below has already passed the final relevance gate. You are not a selection or filtering stage. Do not reject, exclude, rank, or omit any article. Return exactly one summary for every supplied article index.
+
 --- USER'S BRIEFING CONTEXT ---
 {intent_context}
 --- END CONTEXT ---
@@ -75,20 +76,20 @@ def _build_batch_prompt(
 For each of the {len(articles)} articles below:
 1. Identify what is genuinely relevant to the user's stated intent.
 2. Write a 2-4 sentence summary that explains WHAT matters and WHY it matters to the user's specific goal.
-3. If an article does NOT meaningfully apply to the user's intent despite appearing topically related, mark it for exclusion.
 
 Write as if you're briefing a colleague: direct, insightful, no filler. Use phrases like "This matters because...", "Key takeaway for your focus on X...", "This signals that...".
 
 IMPORTANT: Respond with ONLY a valid JSON array. Each element must have exactly these fields:
 - "index": the article number (1-based integer)
 - "summary": your 2-4 sentence advisory summary string
-- "exclude": boolean - true if this article should be excluded from the digest (not meaningfully relevant)
 
 Example response format:
 [
-  {{"index": 1, "summary": "A new framework for...", "exclude": false}},
-  {{"index": 2, "summary": "", "exclude": true}}
+  {{"index": 1, "summary": "A new framework for..."}},
+  {{"index": 2, "summary": "The article reports..."}}
 ]
+
+Return exactly one element for every article index from 1 through {len(articles)}. Do not include empty summaries.
 
 Do NOT include any text before or after the JSON array.
 
@@ -124,7 +125,7 @@ async def summarise_articles(
             or _setting(settings, "GEMINI_SUMMARY_BATCH_SIZE", 8)
         ),
     )
-    included_articles: List[Dict] = []
+    summarised_articles: List[Dict] = []
     for start in range(0, len(articles), batch_size):
         batch = articles[start:start + batch_size]
         log.info(
@@ -133,11 +134,11 @@ async def summarise_articles(
             batch_size=len(batch),
             total=len(articles),
         )
-        included_articles.extend(
+        summarised_articles.extend(
             await _summarise_batch(batch, topic, intent_context, settings)
         )
 
-    return included_articles
+    return summarised_articles
 
 
 async def _summarise_batch(
@@ -188,28 +189,26 @@ async def _summarise_batch(
     if not summaries:
         raise RuntimeError("Summarisation failed: no parseable summaries")
 
-    included_articles = []
+    expected_indexes = set(range(1, len(articles) + 1))
+    missing_indexes = sorted(expected_indexes - set(summaries))
+    if missing_indexes:
+        raise RuntimeError(
+            "Summarisation failed: missing summaries for article "
+            f"indexes {missing_indexes}"
+        )
+
+    summarised_articles = []
     for article_idx, article in enumerate(articles):
         article_num = article_idx + 1
-        summary_data = summaries.get(article_num, {})
-
-        if summary_data.get("exclude", False):
-            log.info(
-                "summariser.excluded_article",
-                title=article.get("title", "")[:60],
-            )
-            continue
-
-        article["summary"] = summary_data.get("summary", "[Summary unavailable]")
-        included_articles.append(article)
+        article["summary"] = summaries[article_num]["summary"]
+        summarised_articles.append(article)
 
     log.info(
         "summariser.complete",
         input=len(articles),
-        included=len(included_articles),
-        excluded=len(articles) - len(included_articles),
+        output=len(summarised_articles),
     )
-    return included_articles
+    return summarised_articles
 
 
 def _normalise_summaries(response: Any, expected_count: int) -> Dict[int, dict]:
@@ -231,10 +230,10 @@ def _normalise_summaries(response: Any, expected_count: int) -> Dict[int, dict]:
                 continue
         except (TypeError, ValueError):
             continue
-        result[idx_int] = {
-            "summary": str(data.get("summary", "")),
-            "exclude": bool(data.get("exclude", False)),
-        }
+        summary = str(data.get("summary", "")).strip()
+        if not summary:
+            continue
+        result[idx_int] = {"summary": summary}
     return result
 
 
