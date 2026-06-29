@@ -2,6 +2,14 @@
 
 This is the outside-the-repo checklist to complete before asking Codex to help deploy SmartDigest to production on Google Cloud Run.
 
+Repository deployment assets are now implemented. After completing the external prerequisites below, follow `CLOUD_RUN_DEPLOYMENT.md` or run:
+
+```bash
+bash scripts/deploy_gcloud.sh YOUR_PROJECT_ID YOUR_REGION
+```
+
+The script builds one image and deploys three separate resources: the FastAPI Cloud Run service, a continuous ARQ Cloud Run worker pool, and a bounded migration/seed Cloud Run job. It performs Google Cloud writes and can incur charges, so review the command and region before running it.
+
 Do not paste secrets into public chats, screenshots, GitHub issues, or committed files. When Codex needs secret values later, provide them only in this local Codex thread, or put them directly into Google Secret Manager and tell Codex the secret names.
 
 ## 1. Google Cloud Account And Project

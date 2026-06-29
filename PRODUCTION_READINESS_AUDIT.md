@@ -1,14 +1,41 @@
 # SmartDigest Production Readiness Audit
 
-Audit date: 2026-06-26
+Original audit date: 2026-06-26
+Implementation update: 2026-06-29
 
-Scope: production readiness audit plus the current Upstash Redis and Neon Postgres readiness updates. This pass updated local-only environment wiring, documentation, safe environment examples, smoke-test scripts, narrowly scoped production Redis validation, and Neon asyncpg SSL handling. It did not create Docker files, Cloud Run files, queue architecture changes, worker behavior changes, or web startup migration commands.
+## 2026-06-29 Implementation Update
+
+This update supersedes the older "missing" findings below for container packaging, production validation, `/healthz`, explicit ARQ concurrency, release tasks, and Cloud Run deployment files. The older sections remain as historical audit context.
+
+Implemented and locally verified:
+
+- Added a Python 3.11 `Dockerfile` and `.dockerignore`; `docker build --check .` reports no warnings.
+- Added role-specific fail-fast production validation with `APP_ROLE=web`, `worker`, or `release`.
+- Added public `GET /healthz`, excluded it from session authentication, and tested the response.
+- Added `ARQ_MAX_JOBS`, wired it to `WorkerSettings.max_jobs`, and set the first-deploy worker value to `2`.
+- Added a bounded release script for Alembic migrations and source seeding.
+- Added non-secret web, worker, and release environment files under `deploy/`.
+- Added `scripts/deploy_gcloud.sh` to build one image and deploy a web service, release job, and continuous worker pool with separate runtime identities and per-secret IAM access.
+- Disabled semantic retrieval and reranking only in the first-deploy worker environment; BM25 and LLM relevance remain active.
+- Added `CLOUD_RUN_DEPLOYMENT.md` with the deployment and post-deployment runbook.
+- Ran 6 focused production-readiness tests and the existing 49 retrieval/pipeline tests successfully.
+
+Still external or operational:
+
+- The deployment script has not been run against Google Cloud.
+- The selected region must support Cloud Run worker pools.
+- Resend sender-domain verification and Firebase authorized-domain configuration remain console/provider tasks.
+- Post-deployment login, enqueue, worker, LLM, email, and logging smoke tests remain required.
+
+## Original 2026-06-26 Audit
+
+Scope: production readiness audit plus the Upstash Redis and Neon Postgres readiness updates that existed at that date.
 
 Current verification performed:
 
 - Inspected repo structure with `rg --files`, `find app`, and targeted reads of app, worker, migration, template, and deployment-related files.
 - Confirmed local venv runtime with `env PYTHONPYCACHEPREFIX=/private/tmp/smartdigest-pycache .venv/bin/python --version`: Python 3.11.14.
-- Introspected FastAPI routes from `app.main:app`; no `/healthz` or `/readyz` route exists.
+- Introspected FastAPI routes from `app.main:app`; at that date no `/healthz` or `/readyz` route existed.
 - Ran `env PYTHONPYCACHEPREFIX=/private/tmp/smartdigest-pycache .venv/bin/python -m unittest tests.test_retrieval_pipeline`: 49 tests passed.
 - Ran `env PYTHONPYCACHEPREFIX=/private/tmp/smartdigest-pycache .venv/bin/python scripts/smoke_redis.py`: Upstash `rediss://` parsed through ARQ with SSL enabled, Redis `PING` succeeded, and short-lived `SET`/`GET` succeeded.
 - Ran production Redis config validation sanity checks: local/default Redis and non-TLS production Redis are rejected unless the explicit override is set.

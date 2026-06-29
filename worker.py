@@ -28,6 +28,7 @@ class WorkerSettings:
     functions = [run_pipeline]
     job_timeout = settings.ARQ_JOB_TIMEOUT_SECONDS
     max_tries = settings.ARQ_MAX_TRIES
+    max_jobs = settings.ARQ_MAX_JOBS
 
     # Check every 30 minutes; enqueue_scheduled_digests matches briefing.schedule.
     cron_jobs = [

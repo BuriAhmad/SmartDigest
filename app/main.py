@@ -288,6 +288,11 @@ def create_app() -> FastAPI:
 
     # --- HTML Routes ---
 
+    @application.get("/healthz", response_class=PlainTextResponse, include_in_schema=False)
+    async def healthz():
+        """Lightweight unauthenticated liveness check for Cloud Run."""
+        return "ok"
+
     @application.get("/login", response_class=HTMLResponse)
     async def login_page(request: Request):
         """Login / register page."""

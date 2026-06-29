@@ -1,7 +1,8 @@
 """Application configuration via Pydantic BaseSettings."""
 
+import json
 from functools import lru_cache
-from typing import Any, Dict
+from typing import Any, Dict, Literal
 from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 from pydantic import model_validator
@@ -72,6 +73,7 @@ class Settings(BaseSettings):
     RESEND_FROM_EMAIL: str = "SmartDigest <digest@smartdigest.app>"
     JWT_SECRET: str = "dev-secret-change-in-production-abc123"
     ENV: str = "development"
+    APP_ROLE: Literal["all", "web", "worker", "release"] = "all"
     FIREBASE_SERVICE_ACCOUNT_PATH: str = "~/.config/smartdigest/firebase/firebase-admin-service-account.json"
     FIREBASE_SERVICE_ACCOUNT_JSON: str = ""
     FIREBASE_WEB_API_KEY: str = "AIzaSyDqPpFLX9e6ViHhWgeulLece4L034HUrGE"
@@ -115,6 +117,7 @@ class Settings(BaseSettings):
     PROCESSING_DIGEST_RECOVERY_AFTER_MINUTES: int = 30
     ARQ_JOB_TIMEOUT_SECONDS: int = 900
     ARQ_MAX_TRIES: int = 4
+    ARQ_MAX_JOBS: int = 2
     PIPELINE_RETRY_DEFER_SECONDS: int = 300
     ALLOW_INSECURE_PRODUCTION_REDIS: bool = False
 
@@ -122,11 +125,27 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def normalise_and_validate_urls(self) -> "Settings":
-        """Normalise DB URLs and block unsafe production Redis defaults."""
+        """Normalise URLs and reject incomplete production configuration."""
         self.DATABASE_URL = normalise_database_url(self.DATABASE_URL)
         if self.is_production:
-            self._validate_production_redis_url()
+            self._validate_production_database_url()
+            if self.APP_ROLE in {"all", "web", "worker"}:
+                self._validate_production_redis_url()
+            if self.APP_ROLE in {"all", "web"}:
+                self._validate_production_web_config()
+            if self.APP_ROLE in {"all", "worker"}:
+                self._validate_production_worker_config()
         return self
+
+    def _validate_production_database_url(self) -> None:
+        parsed = urlparse(self.DATABASE_URL)
+        local_hosts = {"localhost", "127.0.0.1", "::1", ""}
+        if parsed.scheme != "postgresql+asyncpg":
+            raise ValueError("Production DATABASE_URL must use PostgreSQL")
+        if parsed.hostname in local_hosts:
+            raise ValueError("Production DATABASE_URL must not point at local Postgres")
+        if not parsed.username or not parsed.path.strip("/"):
+            raise ValueError("Production DATABASE_URL must include a user and database")
 
     def _validate_production_redis_url(self) -> None:
         parsed = urlparse(self.REDIS_URL)
@@ -140,6 +159,42 @@ class Settings(BaseSettings):
                 "Production REDIS_URL should use rediss:// for TLS; set "
                 "ALLOW_INSECURE_PRODUCTION_REDIS=true only for an intentional exception"
             )
+
+    def _validate_production_web_config(self) -> None:
+        if (
+            len(self.JWT_SECRET) < 32
+            or self.JWT_SECRET == "dev-secret-change-in-production-abc123"
+        ):
+            raise ValueError("Production web requires a strong JWT_SECRET")
+
+        if not self.FIREBASE_SERVICE_ACCOUNT_JSON:
+            raise ValueError(
+                "Production web requires FIREBASE_SERVICE_ACCOUNT_JSON"
+            )
+        try:
+            service_account = json.loads(self.FIREBASE_SERVICE_ACCOUNT_JSON)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "FIREBASE_SERVICE_ACCOUNT_JSON must contain valid JSON"
+            ) from exc
+
+        required_fields = {"project_id", "private_key", "client_email"}
+        if not isinstance(service_account, dict) or not all(
+            service_account.get(field) for field in required_fields
+        ):
+            raise ValueError(
+                "FIREBASE_SERVICE_ACCOUNT_JSON is missing required fields"
+            )
+
+    def _validate_production_worker_config(self) -> None:
+        if not (self.LLM_API_KEY or self.GEMINI_API_KEY):
+            raise ValueError("Production worker requires LLM_API_KEY")
+        if not self.RESEND_API_KEY:
+            raise ValueError("Production worker requires RESEND_API_KEY")
+        if not self.RESEND_FROM_EMAIL.strip():
+            raise ValueError("Production worker requires RESEND_FROM_EMAIL")
+        if self.ARQ_MAX_JOBS < 1:
+            raise ValueError("ARQ_MAX_JOBS must be at least 1")
 
     @property
     def is_production(self) -> bool:
