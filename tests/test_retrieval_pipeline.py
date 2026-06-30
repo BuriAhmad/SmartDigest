@@ -8,9 +8,12 @@ from arq import Retry
 from fastapi import HTTPException
 
 from app.api.briefings import trigger_pipeline
+from app.cli import _seed_sources
 from app.models.digest import Digest
 from app.models.digest_item import DigestItem
 from app.models.pipeline_event import PipelineEvent
+from app.models.curated_source import CuratedSource
+from app.source_catalog import SEED_SOURCES
 from app.services.publication_dates import STATUS_UPDATED_ONLY, resolve_publication_date
 from app.services.fetcher import fetch_articles
 from app.services.filters import FilterPipeline
@@ -23,10 +26,12 @@ from app.services.llm import LLMGenerationError, LLMRetryableError, configured_m
 from app.services.llm.google_genai import _structured_payload
 from app.services.scrapers import build_default_registry
 from app.services.scrapers.hackernews import HackerNewsScraper
+from app.services.scrapers.indiehackers import IndieHackersScraper
 from app.services.scrapers.rss_generic import GenericRSSScraper
 from app.services.summariser import SummaryResult
 from app.services.scheduler import (
     _latest_scheduled_occurrence,
+    _load_source_metadata,
     enqueue_scheduled_digests,
     recover_queued_digests,
     run_pipeline,
@@ -96,6 +101,8 @@ class FakeSession:
         return False
 
     async def execute(self, _query):
+        if "curated_sources" in str(_query):
+            return FakeResult([])
         if self.execute_values is not None:
             return FakeResult(self.execute_values.pop(0))
         return FakeResult(self.briefing)
@@ -530,6 +537,7 @@ class RetrievalPipelineTests(unittest.IsolatedAsyncioTestCase):
         fetch_mock.assert_awaited_once_with(
             sources=briefing.sources,
             topic=briefing.topic,
+            source_metadata={},
             since=since,
         )
         self.assertEqual(result["status"], "skipped")
@@ -582,6 +590,7 @@ class RetrievalPipelineTests(unittest.IsolatedAsyncioTestCase):
         fetch_mock.assert_awaited_once_with(
             sources=briefing.sources,
             topic=briefing.topic,
+            source_metadata={},
             since=since,
         )
         self.assertEqual(result["status"], "delivered")
@@ -1023,6 +1032,192 @@ class ScraperRegistryTests(unittest.TestCase):
         scraper = registry.get_scraper("Hacker News", "https://news.ycombinator.com/rss")
 
         self.assertIsInstance(scraper, HackerNewsScraper)
+
+    def test_indie_hackers_uses_the_html_listing_scraper(self):
+        registry = build_default_registry()
+
+        by_name = registry.get_scraper("Indie Hackers", "https://www.indiehackers.com/")
+        by_url = registry.get_scraper("", "https://www.indiehackers.com/")
+
+        self.assertIsInstance(by_name, IndieHackersScraper)
+        self.assertIsInstance(by_url, IndieHackersScraper)
+
+
+class SourceCatalogTests(unittest.TestCase):
+    def test_catalog_adds_at_least_forty_sources_without_duplicate_urls(self):
+        urls = [source["url"] for source in SEED_SOURCES]
+
+        self.assertGreaterEqual(len(SEED_SOURCES), 50)
+        self.assertEqual(len(urls), len(set(urls)))
+        self.assertTrue(all(source["name"] and source["category"] for source in SEED_SOURCES))
+
+    def test_catalog_spans_engineering_physics_and_formal_research(self):
+        names = {source["name"] for source in SEED_SOURCES}
+        categories = {source["category"] for source in SEED_SOURCES}
+
+        self.assertIn("Indie Hackers", names)
+        self.assertIn("IEEE Signal Processing Society", names)
+        self.assertIn("arXiv Signal Processing", names)
+        self.assertIn("Nature Physics", names)
+        self.assertIn("electrical-engineering", categories)
+        self.assertIn("physics", categories)
+        self.assertIn("research", categories)
+
+
+class SourceSeedTests(unittest.IsolatedAsyncioTestCase):
+    async def test_seed_updates_existing_metadata_and_adds_new_sources(self):
+        existing = CuratedSource(
+            name="Old name",
+            url="https://example.com/existing",
+            source_type="rss",
+            category="old",
+            tags=[],
+            description="Old description",
+            scraper_config={},
+            active=False,
+        )
+
+        class SeedSession:
+            def __init__(self):
+                self.added = []
+                self.committed = False
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def execute(self, _query):
+                return FakeResult([existing])
+
+            def add(self, item):
+                self.added.append(item)
+
+            async def commit(self):
+                self.committed = True
+
+        catalog = [
+            {
+                "name": "Updated name",
+                "url": existing.url,
+                "source_type": "web_scrape",
+                "category": "startups",
+                "tags": ["founders"],
+                "description": "Updated description",
+                "scraper_config": {"max_items": 10},
+            },
+            {
+                "name": "New source",
+                "url": "https://example.com/new",
+                "source_type": "rss",
+                "category": "research",
+                "tags": ["science"],
+                "description": "A new source",
+                "scraper_config": {},
+            },
+        ]
+        session = SeedSession()
+
+        with patch("app.cli.async_session", return_value=session), \
+             patch("app.cli.SEED_SOURCES", catalog):
+            await _seed_sources()
+
+        self.assertTrue(session.committed)
+        self.assertEqual(existing.name, "Updated name")
+        self.assertEqual(existing.source_type, "web_scrape")
+        self.assertEqual(existing.scraper_config, {"max_items": 10})
+        self.assertFalse(existing.active)
+        self.assertEqual([source.url for source in session.added], ["https://example.com/new"])
+
+
+class SourceMetadataTests(unittest.IsolatedAsyncioTestCase):
+    async def test_scheduler_loads_scraper_metadata_by_url(self):
+        source = CuratedSource(
+            name="Indie Hackers",
+            url="https://www.indiehackers.com/",
+            source_type="web_scrape",
+            scraper_config={"max_items": 12},
+        )
+        session = AsyncMock()
+        session.execute.return_value = FakeResult([source])
+
+        metadata = await _load_source_metadata(session, [source.url])
+
+        self.assertEqual(
+            metadata[source.url],
+            {
+                "name": "Indie Hackers",
+                "source_type": "web_scrape",
+                "scraper_config": {"max_items": 12},
+            },
+        )
+
+
+class IndieHackersScraperTests(unittest.IsolatedAsyncioTestCase):
+    async def test_discovers_only_unique_posts_and_extracts_page_metadata(self):
+        listing = """
+        <a href="/post/building-a-calm-company-abc123">First</a>
+        <a href="/post/building-a-calm-company-abc123?utm_source=test">Duplicate</a>
+        <a href="/product/something">Product</a>
+        <a href="https://example.com/post/not-indie-hackers">External</a>
+        """
+        post_html = """
+        <html><head><title>Fallback - Indie Hackers</title>
+        <script type="application/ld+json">
+        {"@type":"Article","datePublished":"2026-06-12T09:30:00Z"}
+        </script></head><body><h1>Building a Calm Company</h1></body></html>
+        """
+        scraper = IndieHackersScraper()
+
+        with patch.object(scraper, "_fetch_html", AsyncMock(return_value=listing)), \
+             patch.object(
+                 scraper,
+                 "_fetch_html_with_headers",
+                 AsyncMock(return_value=(post_html, {"content-type": "text/html"})),
+             ) as post_fetch, \
+             patch.object(scraper, "_extract_content", return_value="A detailed founder story."):
+            articles = await scraper.fetch_articles(
+                "https://www.indiehackers.com/",
+                scraper_config={"max_items": 10, "concurrent_fetches": 2},
+                since=datetime(2026, 6, 12, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(post_fetch.await_count, 1)
+        self.assertEqual(len(articles), 1)
+        self.assertEqual(articles[0].title, "Building a Calm Company")
+        self.assertEqual(
+            articles[0].url,
+            "https://www.indiehackers.com/post/building-a-calm-company-abc123",
+        )
+        self.assertEqual(articles[0].date_source, "json_ld_date_published")
+
+    async def test_since_window_rejects_old_and_undated_posts(self):
+        listing = """
+        <a href="/post/old-post-abc123">Old</a>
+        <a href="/post/undated-post-def456">Undated</a>
+        """
+        old_html = """
+        <h1>Old post</h1><script type="application/ld+json">
+        {"@type":"Article","datePublished":"2026-06-10T09:30:00Z"}
+        </script>
+        """
+        undated_html = "<h1>Undated post</h1>"
+        scraper = IndieHackersScraper()
+
+        with patch.object(scraper, "_fetch_html", AsyncMock(return_value=listing)), \
+             patch.object(
+                 scraper,
+                 "_fetch_html_with_headers",
+                 AsyncMock(side_effect=[(old_html, {}), (undated_html, {})]),
+             ), \
+             patch.object(scraper, "_extract_content", return_value="Post body"):
+            articles = await scraper.fetch_articles(
+                "https://www.indiehackers.com/",
+                since=datetime(2026, 6, 11, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(articles, [])
 
 
 class LexicalRetrievalTests(unittest.TestCase):

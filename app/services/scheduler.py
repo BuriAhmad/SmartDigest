@@ -6,7 +6,7 @@ Also exports enqueue_scheduled_digests for the ARQ cron job.
 
 import structlog
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Dict, List, Optional
 
 from arq import Retry
 from sqlalchemy import func, select
@@ -14,6 +14,7 @@ from arq.connections import create_pool, RedisSettings
 from app.config import get_settings
 from app.database import async_session
 from app.models.briefing import Briefing
+from app.models.curated_source import CuratedSource
 from app.models.digest import Digest
 from app.models.digest_item import DigestItem
 from app.models.pipeline_event import PipelineEvent
@@ -28,6 +29,24 @@ from app.services.llm import LLMRetryableError
 logger = structlog.get_logger()
 
 _PIPELINE_LOCK_NAMESPACE = 0x5D16E57
+
+
+async def _load_source_metadata(session, source_urls: List[str]) -> Dict[str, Dict]:
+    """Load scraper dispatch data for the sources selected by a briefing."""
+    if not source_urls:
+        return {}
+
+    result = await session.execute(
+        select(CuratedSource).where(CuratedSource.url.in_(source_urls))
+    )
+    return {
+        source.url: {
+            "name": source.name,
+            "source_type": source.source_type,
+            "scraper_config": source.scraper_config or {},
+        }
+        for source in result.scalars().all()
+    }
 
 
 async def run_pipeline(ctx: dict, briefing_id: int, digest_id: Optional[int] = None) -> dict:
@@ -122,6 +141,7 @@ async def run_pipeline(ctx: dict, briefing_id: int, digest_id: Optional[int] = N
             example_articles=briefing.example_articles,
         )
         last_delivered_at = await _get_last_delivered_at(session, briefing.id)
+        source_metadata = await _load_source_metadata(session, briefing.sources)
 
         # ── Create or claim digest record ─────────────────────────
         if digest is None:
@@ -145,6 +165,7 @@ async def run_pipeline(ctx: dict, briefing_id: int, digest_id: Optional[int] = N
             articles, fetch_ms = await fetch_articles(
                 sources=briefing.sources,
                 topic=briefing.topic,
+                source_metadata=source_metadata,
                 since=last_delivered_at,
             )
 

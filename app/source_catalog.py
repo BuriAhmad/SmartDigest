@@ -1,0 +1,91 @@
+"""Curated source catalog seeded into the production database."""
+
+from typing import Any, Dict, List
+
+
+def _source(
+    name: str,
+    url: str,
+    category: str,
+    tags: List[str],
+    description: str,
+    *,
+    source_type: str = "rss",
+    scraper_config: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    return {
+        "name": name,
+        "url": url,
+        "source_type": source_type,
+        "category": category,
+        "tags": tags,
+        "description": description,
+        "scraper_config": scraper_config or {},
+    }
+
+
+SEED_SOURCES = [
+    _source("Hacker News", "https://news.ycombinator.com/rss", "tech", ["startups", "programming", "open-source", "AI"], "Community-curated technology and startup news."),
+    _source("TechCrunch", "https://techcrunch.com/feed/", "tech", ["startups", "funding", "venture-capital", "AI"], "Startup, venture capital, and technology news."),
+    _source("MIT Tech Review", "https://www.technologyreview.com/feed/", "science-tech", ["AI", "biotech", "climate", "research"], "Reporting on emerging technology and scientific breakthroughs."),
+    _source("The Verge", "https://www.theverge.com/rss/index.xml", "tech", ["consumer-tech", "gadgets", "policy", "AI"], "Consumer technology, platforms, and digital culture."),
+    _source("Wired", "https://www.wired.com/feed/rss", "tech", ["science", "security", "AI", "business"], "Technology, science, security, and culture reporting."),
+    _source("Ars Technica", "https://feeds.arstechnica.com/arstechnica/index", "tech", ["hardware", "software", "science", "policy"], "Technical coverage of computing, science, and policy."),
+    _source("VentureBeat", "https://venturebeat.com/feed/", "tech", ["AI", "enterprise", "gaming", "data"], "Enterprise technology, artificial intelligence, and gaming."),
+    _source("InfoQ", "https://www.infoq.com/feed/", "software-engineering", ["architecture", "devops", "cloud", "programming"], "Software architecture, DevOps, and engineering practices."),
+    _source("Dev.to", "https://dev.to/feed", "software-engineering", ["programming", "tutorials", "web-dev", "career"], "Developer tutorials, projects, and community writing."),
+    _source("Simon Willison", "https://simonwillison.net/atom/everything/", "tech", ["AI", "LLM", "python", "open-source"], "Practical writing on LLMs, Python, data, and developer tools."),
+
+    _source("Indie Hackers", "https://www.indiehackers.com/", "startups", ["startups", "bootstrapping", "product", "growth", "founders"], "Founder stories and practical lessons from independent product builders.", source_type="web_scrape", scraper_config={"max_items": 20, "concurrent_fetches": 4}),
+    _source("The Register", "https://www.theregister.com/headlines.atom", "tech", ["enterprise", "cloud", "security", "hardware"], "Enterprise technology, infrastructure, and security news."),
+    _source("Cloudflare Blog", "https://blog.cloudflare.com/rss/", "infrastructure", ["networking", "security", "web", "cloud"], "Engineering and research from Cloudflare's network platform."),
+    _source("AWS News Blog", "https://aws.amazon.com/blogs/aws/feed/", "cloud", ["AWS", "cloud", "infrastructure", "databases"], "New AWS services, capabilities, and architecture guidance."),
+    _source("Microsoft Azure Blog", "https://azure.microsoft.com/en-us/blog/feed/", "cloud", ["Azure", "cloud", "enterprise", "AI"], "Azure platform, cloud, and enterprise AI updates."),
+    _source("Google Cloud Blog", "https://blog.google/products/google-cloud/rss/", "cloud", ["Google Cloud", "cloud", "data", "AI"], "Google Cloud product and engineering updates."),
+    _source("Kubernetes Blog", "https://kubernetes.io/feed.xml", "infrastructure", ["kubernetes", "containers", "cloud-native", "devops"], "Official Kubernetes releases and ecosystem guidance."),
+    _source("Schneier on Security", "https://www.schneier.com/feed/atom/", "security", ["security", "cryptography", "privacy", "policy"], "Security analysis by Bruce Schneier."),
+    _source("Krebs on Security", "https://krebsonsecurity.com/feed/", "security", ["cybersecurity", "breaches", "fraud", "malware"], "Investigative reporting on cybercrime and security incidents."),
+    _source("Trail of Bits", "https://blog.trailofbits.com/feed/", "security", ["application-security", "cryptography", "blockchain", "research"], "Applied security engineering and vulnerability research."),
+    _source("ACM Queue", "https://queue.acm.org/rss/feeds/queuecontent.xml", "software-engineering", ["systems", "architecture", "programming", "research"], "Practitioner-focused computing articles from ACM."),
+    _source("NVIDIA Blog", "https://blogs.nvidia.com/feed/", "computing", ["GPU", "AI", "hardware", "robotics"], "GPU computing, AI, robotics, and accelerated systems."),
+    _source("Google Research", "https://research.google/blog/rss/", "research", ["AI", "machine-learning", "systems", "science"], "Research publications and explanations from Google."),
+    _source("Google DeepMind", "https://deepmind.google/blog/rss.xml", "research", ["AI", "machine-learning", "science", "robotics"], "AI and scientific research from Google DeepMind."),
+    _source("Microsoft Research", "https://www.microsoft.com/en-us/research/feed/", "research", ["AI", "systems", "HCI", "science"], "Computer science and interdisciplinary research from Microsoft."),
+    _source("Stripe Blog", "https://stripe.com/blog/feed.rss", "tech-business", ["payments", "startups", "engineering", "internet-economy"], "Payments engineering and internet business analysis."),
+    _source("Red Hat Blog", "https://www.redhat.com/en/rss/blog", "infrastructure", ["linux", "open-source", "cloud", "enterprise"], "Enterprise open source, Linux, and hybrid cloud."),
+    _source("GitHub Blog", "https://github.blog/feed/", "software-engineering", ["git", "open-source", "developer-tools", "security"], "Software development, open source, and GitHub product updates."),
+    _source("OpenAI News", "https://openai.com/news/rss.xml", "AI", ["AI", "LLM", "research", "products"], "OpenAI research, product, and company announcements."),
+
+    _source("EE Times", "https://www.eetimes.com/feed/", "electrical-engineering", ["semiconductors", "embedded", "electronics", "chips"], "Semiconductor and electronics engineering news."),
+    _source("Electronics Weekly", "https://www.electronicsweekly.com/feed/", "electrical-engineering", ["electronics", "components", "semiconductors", "embedded"], "Electronics industry and component engineering coverage."),
+    _source("EDN", "https://www.edn.com/feed/", "electrical-engineering", ["circuit-design", "embedded", "test", "electronics"], "Hands-on electronic design and engineering analysis."),
+    _source("Semiconductor Engineering", "https://semiengineering.com/feed/", "electrical-engineering", ["semiconductors", "EDA", "chip-design", "manufacturing"], "Deep coverage of chip design and semiconductor manufacturing."),
+    _source("Power Electronics News", "https://www.powerelectronicsnews.com/feed/", "electrical-engineering", ["power-electronics", "energy", "components", "EV"], "Power conversion, devices, and electrical energy systems."),
+    _source("Design News", "https://www.designnews.com/rss.xml", "engineering", ["electronics", "automation", "manufacturing", "robotics"], "Engineering design, automation, and manufacturing news."),
+    _source("Hackaday", "https://hackaday.com/blog/feed/", "electrical-engineering", ["hardware", "electronics", "embedded", "makers"], "Hardware projects, reverse engineering, and electronics."),
+    _source("Fierce Electronics", "https://www.fierceelectronics.com/rss/xml", "electrical-engineering", ["sensors", "semiconductors", "IoT", "automotive"], "Sensors, chips, embedded systems, and electronics markets."),
+    _source("IEEE Signal Processing Society", "https://ieeetv.ieee.org/channel_rss/channel_81/rss", "electrical-engineering", ["IEEE", "signal-processing", "research", "communications"], "Official IEEE Signal Processing Society technical media."),
+    _source("IEEE Power Electronics Society", "https://ieeetv.ieee.org/channel_rss/channel_11/rss", "electrical-engineering", ["IEEE", "power-electronics", "energy", "research"], "Official IEEE Power Electronics Society technical media."),
+
+    _source("CERN News", "https://home.cern/news/feed/", "physics", ["particle-physics", "accelerators", "CERN", "research"], "Particle physics and accelerator research from CERN."),
+    _source("Phys.org Physics", "https://phys.org/rss-feed/physics-news/", "physics", ["physics", "quantum", "materials", "space"], "Broad physics research news and discoveries."),
+    _source("Quanta Magazine", "https://www.quantamagazine.org/feed/", "science", ["physics", "mathematics", "computer-science", "biology"], "Deep explanatory journalism in mathematics and science."),
+    _source("ScienceDaily Physics", "https://www.sciencedaily.com/rss/matter_energy/physics.xml", "physics", ["physics", "matter", "energy", "research"], "Frequent summaries of newly published physics research."),
+    _source("Nature Physics", "https://www.nature.com/nphys.rss", "physics", ["physics", "peer-reviewed", "research", "journals"], "Research and commentary from the Nature Physics journal."),
+    _source("NASA Science", "https://science.nasa.gov/feed/", "space-science", ["space", "astronomy", "planetary-science", "earth-science"], "Space and Earth science updates from NASA."),
+    _source("NIST News", "https://www.nist.gov/news-events/news/rss.xml", "science", ["standards", "measurement", "physics", "cybersecurity"], "Measurement science, standards, and technology research."),
+    _source("US Department of Energy", "https://www.energy.gov/rss.xml", "energy", ["energy", "climate", "grid", "research"], "Energy research, policy, laboratories, and grid technology."),
+    _source("SLAC News", "https://www6.slac.stanford.edu/rss.xml", "physics", ["particle-physics", "materials", "accelerators", "research"], "Accelerator, materials, and particle physics from SLAC."),
+    _source("CleanTechnica", "https://cleantechnica.com/feed/", "energy", ["clean-energy", "EV", "batteries", "climate"], "Clean energy, electric transport, and climate technology."),
+    _source("PV Magazine", "https://www.pv-magazine.com/feed/", "energy", ["solar", "storage", "grid", "renewables"], "Solar power, storage, and renewable energy markets."),
+    _source("Canary Media", "https://www.canarymedia.com/feed", "energy", ["clean-energy", "grid", "climate", "decarbonization"], "Energy transition, grid modernization, and decarbonization."),
+
+    _source("arXiv AI", "https://rss.arxiv.org/rss/cs.AI", "research", ["arXiv", "AI", "computer-science", "preprints"], "New artificial intelligence preprints from arXiv."),
+    _source("arXiv Machine Learning", "https://rss.arxiv.org/rss/cs.LG", "research", ["arXiv", "machine-learning", "AI", "preprints"], "New machine learning preprints from arXiv."),
+    _source("arXiv Signal Processing", "https://rss.arxiv.org/rss/eess.SP", "research", ["arXiv", "signal-processing", "electrical-engineering", "preprints"], "New signal processing preprints from arXiv."),
+    _source("arXiv Systems and Control", "https://rss.arxiv.org/rss/eess.SY", "research", ["arXiv", "control-systems", "electrical-engineering", "preprints"], "New systems and control preprints from arXiv."),
+    _source("arXiv Applied Physics", "https://rss.arxiv.org/rss/physics.app-ph", "research", ["arXiv", "applied-physics", "physics", "preprints"], "New applied physics preprints from arXiv."),
+    _source("arXiv Materials Science", "https://rss.arxiv.org/rss/cond-mat.mtrl-sci", "research", ["arXiv", "materials-science", "condensed-matter", "preprints"], "New materials science preprints from arXiv."),
+    _source("bioRxiv", "https://connect.biorxiv.org/biorxiv_xml.php?subject=all", "research", ["biology", "life-sciences", "preprints", "research"], "New life science preprints from bioRxiv."),
+    _source("medRxiv", "https://connect.medrxiv.org/medrxiv_xml.php?subject=all", "research", ["medicine", "health", "preprints", "research"], "New health science preprints from medRxiv."),
+]

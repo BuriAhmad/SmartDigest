@@ -53,6 +53,7 @@ def build_default_registry() -> ScraperRegistry:
     """Build and return the production scraper registry with all known scrapers."""
     from app.services.scrapers.rss_generic import GenericRSSScraper
     from app.services.scrapers.hackernews import HackerNewsScraper
+    from app.services.scrapers.indiehackers import IndieHackersScraper
 
     registry = ScraperRegistry()
     registry.set_default(GenericRSSScraper)
@@ -60,5 +61,7 @@ def build_default_registry() -> ScraperRegistry:
     # Per-source scrapers
     registry.register_by_name("Hacker News", HackerNewsScraper)
     registry.register_by_url("news.ycombinator.com", HackerNewsScraper)
+    registry.register_by_name("Indie Hackers", IndieHackersScraper)
+    registry.register_by_url("indiehackers.com", IndieHackersScraper)
 
     return registry
