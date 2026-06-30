@@ -666,7 +666,7 @@ class RetrievalPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(fetch_mock.called)
         self.assertEqual(skipped_digest.status, "skipped")
 
-    async def test_scheduler_fails_when_no_articles_pass_filtering(self):
+    async def test_scheduler_skips_when_no_articles_pass_filtering(self):
         briefing = make_briefing()
         fake_session = FakeSession(briefing)
         article = {
@@ -688,12 +688,22 @@ class RetrievalPipelineTests(unittest.IsolatedAsyncioTestCase):
              patch("app.services.scheduler.send_digest_email", AsyncMock()) as mail_mock:
             result = await run_pipeline({}, briefing.id)
 
-        self.assertEqual(result["status"], "failed")
-        self.assertEqual(result["error"], "No relevant articles found")
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "No articles passed relevance filtering")
         self.assertFalse(summarise_mock.called)
         self.assertFalse(mail_mock.called)
+        digests = [item for item in fake_session.added if isinstance(item, Digest)]
         events = [item for item in fake_session.added if isinstance(item, PipelineEvent)]
-        self.assertIn(("filter", "failed"), [(event.stage, event.status) for event in events])
+        self.assertEqual(digests[-1].status, "skipped")
+        self.assertIn(("filter", "success", 0), [
+            (event.stage, event.status, event.item_count) for event in events
+        ])
+        self.assertIn(("deliver", "skipped", 0), [
+            (event.stage, event.status, event.item_count) for event in events
+        ])
+        self.assertNotIn(("filter", "failed"), [
+            (event.stage, event.status) for event in events
+        ])
 
     async def test_scheduler_fails_before_email_when_llm_relevance_scoring_fails(self):
         briefing = make_briefing()

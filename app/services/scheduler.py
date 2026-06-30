@@ -231,15 +231,18 @@ async def run_pipeline(ctx: dict, briefing_id: int, digest_id: Optional[int] = N
 
             if not filtered_articles:
                 session.add(PipelineEvent(
-                    digest_id=digest_id, stage="filter", status="failed",
-                    duration_ms=filter_ms,
-                    error_msg="No articles passed relevance filtering",
+                    digest_id=digest_id, stage="deliver", status="skipped",
+                    duration_ms=0,
+                    error_msg="No digest delivered because no articles passed relevance filtering",
                     item_count=0,
                 ))
-                digest.status = "failed"
+                digest.status = "skipped"
                 await session.commit()
-                log.warning("pipeline.no_relevant_articles")
-                return {"status": "failed", "error": "No relevant articles found"}
+                log.info("pipeline.no_relevant_articles")
+                return {
+                    "status": "skipped",
+                    "reason": "No articles passed relevance filtering",
+                }
 
         except Exception as exc:
             filter_ms = _now_ms() - filter_start_ms
