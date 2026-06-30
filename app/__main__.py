@@ -1,4 +1,4 @@
-"""Allow running CLI via: python -m app.cli create_key"""
+"""Allow running CLI commands via ``python -m app``."""
 
 from app.cli import main
 

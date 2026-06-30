@@ -26,14 +26,6 @@ build/
 *.swp
 *.swo
 
-# Project-specific dev/planning files
-0_environment_setup.txt
-PHASE_1_PLAN.md
-Questions.txt
-smartdigest_spec.md
-SmartDigest.md
-test_gemini.py
-
 # Alembic compiled
 alembic/versions/*.pyc
 

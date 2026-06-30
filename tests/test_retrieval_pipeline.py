@@ -19,7 +19,8 @@ from app.services.filters.llm_relevance import LLMRelevanceFilter, RelevanceScor
 from app.services.filters.reranker import CrossEncoderReranker, _MODEL_CACHE as RERANKER_MODEL_CACHE
 from app.services.filters.semantic import SemanticRetriever, _MODEL_CACHE as SEMANTIC_MODEL_CACHE
 from app.services.intent import extract_all_keywords
-from app.services.llm import LLMRetryableError, configured_models
+from app.services.llm import LLMGenerationError, LLMRetryableError, configured_models
+from app.services.llm.google_genai import _structured_payload
 from app.services.scrapers import build_default_registry
 from app.services.scrapers.hackernews import HackerNewsScraper
 from app.services.scrapers.rss_generic import GenericRSSScraper
@@ -1491,6 +1492,7 @@ class LLMProviderTests(unittest.IsolatedAsyncioTestCase):
             LLM_REQUEST_TIMEOUT_SECONDS=30.0,
             LLM_RETRY_ATTEMPTS=1,
             LLM_RETRY_BACKOFF_SECONDS=0,
+            LLM_RELEVANCE_MAX_OUTPUT_TOKENS=4096,
         )
         filter_ = LLMRelevanceFilter("Track AI safety")
 
@@ -1509,6 +1511,56 @@ class LLMProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(scores[1]["score"], 8)
         config = generate_mock.call_args.kwargs["config"]
         self.assertEqual(config.models, ["gemini-2.5-flash-lite", "gemini-2.5-flash"])
+        self.assertEqual(config.max_output_tokens, 4096)
+
+    async def test_relevance_filter_batches_large_candidate_sets(self):
+        articles = [
+            {"title": f"Article {index}", "raw_content": "Relevant details."}
+            for index in range(25)
+        ]
+        settings = SimpleNamespace(
+            LLM_API_KEY="test-key",
+            LLM_RELEVANCE_BATCH_SIZE=10,
+        )
+        filter_ = LLMRelevanceFilter("Track concrete AI governance changes")
+
+        async def score_batch(_prompt, expected_count, _settings):
+            return {
+                index: {
+                    "decision": "PASS",
+                    "score": 7,
+                    "reason": "Directly useful.",
+                }
+                for index in range(1, expected_count + 1)
+            }
+
+        with patch(
+            "app.services.filters.llm_relevance.get_settings",
+            return_value=settings,
+        ), patch.object(filter_, "_call_llm", AsyncMock(side_effect=score_batch)) as call:
+            result = await filter_.score_and_filter(articles)
+
+        self.assertEqual(len(result), 25)
+        self.assertEqual(call.await_count, 3)
+        self.assertTrue(all(article["llm_relevance_score"] == 7 for article in articles))
+
+    def test_structured_output_error_includes_finish_diagnostics(self):
+        response = SimpleNamespace(
+            parsed=None,
+            text="",
+            candidates=[SimpleNamespace(
+                finish_reason="MAX_TOKENS",
+                finish_message=None,
+            )],
+            prompt_feedback=None,
+            usage_metadata=SimpleNamespace(candidates_token_count=2048),
+        )
+
+        with self.assertRaisesRegex(
+            LLMGenerationError,
+            "finish_reason=MAX_TOKENS.*output_tokens=2048",
+        ):
+            _structured_payload(response)
 
     async def test_relevance_filter_uses_pass_fail_as_final_selection(self):
         articles = [

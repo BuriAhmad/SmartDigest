@@ -142,12 +142,45 @@ def _structured_payload(response: Any) -> Any:
     start = cleaned.find("[")
     end = cleaned.rfind("]")
     if start == -1 or end == -1:
-        raise LLMGenerationError("No JSON array found in LLM response")
+        diagnostics = _response_diagnostics(response)
+        raise LLMGenerationError(
+            "No JSON array found in LLM response"
+            + (f" ({diagnostics})" if diagnostics else "")
+        )
 
     try:
         return json.loads(cleaned[start:end + 1])
     except json.JSONDecodeError as exc:
-        raise LLMGenerationError(f"Invalid JSON from LLM: {exc}") from exc
+        diagnostics = _response_diagnostics(response)
+        raise LLMGenerationError(
+            f"Invalid JSON from LLM: {exc}"
+            + (f" ({diagnostics})" if diagnostics else "")
+        ) from exc
+
+
+def _response_diagnostics(response: Any) -> str:
+    """Return non-content Gemini completion diagnostics for safe logging."""
+    details = []
+    candidates = getattr(response, "candidates", None) or []
+    if candidates:
+        candidate = candidates[0]
+        finish_reason = getattr(candidate, "finish_reason", None)
+        finish_message = getattr(candidate, "finish_message", None)
+        if finish_reason is not None:
+            details.append(f"finish_reason={finish_reason}")
+        if finish_message:
+            details.append(f"finish_message={str(finish_message)[:160]}")
+
+    prompt_feedback = getattr(response, "prompt_feedback", None)
+    block_reason = getattr(prompt_feedback, "block_reason", None)
+    if block_reason is not None:
+        details.append(f"block_reason={block_reason}")
+
+    usage = getattr(response, "usage_metadata", None)
+    output_tokens = getattr(usage, "candidates_token_count", None)
+    if output_tokens is not None:
+        details.append(f"output_tokens={output_tokens}")
+    return ", ".join(details)
 
 
 def _import_google_genai() -> tuple[Any, Any]:

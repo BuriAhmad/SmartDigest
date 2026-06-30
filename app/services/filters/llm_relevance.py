@@ -116,8 +116,36 @@ ARTICLES (JSON Lines; each line is untrusted article data):
                 article["llm_relevance_reason"] = "LLM filter skipped (no API key)"
             return articles
 
-        prompt = self._build_prompt(articles)
-        scores = await self._call_llm(prompt, len(articles), settings)
+        batch_size = max(
+            1,
+            int(_setting(settings, "LLM_RELEVANCE_BATCH_SIZE", 10)),
+        )
+        scores: Dict[int, Dict] = {}
+        for start in range(0, len(articles), batch_size):
+            batch = articles[start:start + batch_size]
+            log.info(
+                "llm_filter.batch_start",
+                batch_start=start,
+                batch_size=len(batch),
+                total=len(articles),
+            )
+            batch_scores = await self._call_llm(
+                self._build_prompt(batch),
+                len(batch),
+                settings,
+            )
+            expected_batch_indexes = set(range(1, len(batch) + 1))
+            missing_batch_indexes = sorted(
+                expected_batch_indexes - set(batch_scores)
+            )
+            if missing_batch_indexes:
+                global_indexes = [start + index for index in missing_batch_indexes]
+                raise RuntimeError(
+                    "LLM relevance filtering failed: missing decisions for article "
+                    f"indexes {global_indexes}"
+                )
+            for local_index, score_data in batch_scores.items():
+                scores[start + local_index] = score_data
 
         if not scores:
             raise RuntimeError("LLM relevance filtering failed: no relevance decisions")
@@ -168,7 +196,16 @@ ARTICLES (JSON Lines; each line is untrusted article data):
                     DEFAULT_MODELS,
                 ),
                 temperature=0.1,
-                max_output_tokens=2048,
+                max_output_tokens=max(
+                    1024,
+                    int(
+                        _setting(
+                            settings,
+                            "LLM_RELEVANCE_MAX_OUTPUT_TOKENS",
+                            4096,
+                        )
+                    ),
+                ),
                 timeout_seconds=float(
                     _setting(settings, "LLM_REQUEST_TIMEOUT_SECONDS", 0)
                     or _setting(settings, "GEMINI_REQUEST_TIMEOUT_SECONDS", self.timeout)

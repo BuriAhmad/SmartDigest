@@ -199,3 +199,9 @@ SmartDigest helps you keep up with what matters.
 Tell it what you care about. Pick your sources. Let it watch the web. Get a focused briefing instead of a pile of links.
 
 It is built for signal, context, and calm.
+
+## Technical Operations
+
+For the current architecture, external services, environment contract, API and
+page routes, deployment topology, Google Cloud resources, and verification
+commands, see [SERVICES_AND_DEPLOYMENT.md](SERVICES_AND_DEPLOYMENT.md).

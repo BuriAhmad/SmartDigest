@@ -2,13 +2,14 @@
 
 import json
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.config import Settings
 from app.main import create_app
-from worker import WorkerSettings
+from worker import WorkerSettings, start_worker
 
 
 DATABASE_URL = "postgresql://smartdigest:password@db.example.com/smartdigest"
@@ -64,6 +65,19 @@ class ProductionSettingsTests(unittest.TestCase):
 
     def test_arq_worker_uses_explicit_concurrency_limit(self):
         self.assertEqual(WorkerSettings.max_jobs, 2)
+
+    def test_worker_installs_fresh_loop_after_model_preload(self):
+        loop = object()
+        with patch("worker._preload_enabled_models", new=lambda: "preload"), \
+             patch("worker.asyncio.run") as run, \
+             patch("worker.asyncio.new_event_loop", return_value=loop), \
+             patch("worker.asyncio.set_event_loop") as set_event_loop, \
+             patch("worker.run_worker") as run_worker:
+            start_worker()
+
+        run.assert_called_once_with("preload")
+        set_event_loop.assert_called_once_with(loop)
+        run_worker.assert_called_once_with(WorkerSettings)
 
     def test_release_role_only_requires_database(self):
         settings = Settings(

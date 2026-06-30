@@ -136,7 +136,7 @@ gcloud run worker-pools deploy "$WORKER_POOL" \
   --set-secrets "DATABASE_URL=DATABASE_URL:${SECRET_VERSION},REDIS_URL=REDIS_URL:${SECRET_VERSION},LLM_API_KEY=LLM_API_KEY:${SECRET_VERSION},RESEND_API_KEY=RESEND_API_KEY:${SECRET_VERSION},RESEND_FROM_EMAIL=RESEND_FROM_EMAIL:${SECRET_VERSION}" \
   --instances 1 \
   --cpu 1 \
-  --memory 2Gi
+  --memory 4Gi
 
 WEB_URL="$(gcloud run services describe "$WEB_SERVICE" \
   --project "$PROJECT_ID" \

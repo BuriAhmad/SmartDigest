@@ -54,8 +54,8 @@ def prepare_asyncpg_database_url(database_url: str) -> tuple[str, dict[str, Any]
 class Settings(BaseSettings):
     """All environment variables for SmartDigest.
 
-    Loaded from .env file or OS environment automatically.
-    Railway injects DATABASE_URL, REDIS_URL, etc. as env vars.
+    Loaded from a local .env file or the process environment automatically.
+    Google Cloud Run injects production values and Secret Manager references.
     """
 
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/smartdigest"
@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     LLM_REQUEST_TIMEOUT_SECONDS: float = 45.0
     LLM_RETRY_ATTEMPTS: int = 2
     LLM_RETRY_BACKOFF_SECONDS: float = 1.0
+    LLM_RELEVANCE_BATCH_SIZE: int = 10
+    LLM_RELEVANCE_MAX_OUTPUT_TOKENS: int = 4096
     LLM_SUMMARY_BATCH_SIZE: int = 8
     LLM_SUMMARY_ARTICLE_MAX_CHARS: int = 1800
     GEMINI_API_KEY: str = ""

@@ -28,7 +28,7 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    """Read DATABASE_URL from environment (Railway injects this).
+    """Read DATABASE_URL from the process environment.
     Falls back to alembic.ini value for local dev.
     Converts postgres:// / postgresql:// to asyncpg dialect.
     """
@@ -75,7 +75,7 @@ async def run_async_migrations() -> None:
     and associate a connection with the context.
 
     """
-    # Override the URL from environment so Railway's DATABASE_URL is used
+    # Override the local fallback with the deployed DATABASE_URL.
     database_url, connect_args = prepare_asyncpg_database_url(get_url())
     config.set_main_option("sqlalchemy.url", database_url)
 

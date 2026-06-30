@@ -1,7 +1,7 @@
 """ARQ worker entrypoint.
 
 Run with: python worker.py
-Includes cron job for scheduled digest delivery at 06:00 UTC daily.
+Includes cron checks that match each briefing's configured daily schedule.
 """
 
 import asyncio
@@ -26,10 +26,8 @@ logger = structlog.get_logger()
 class WorkerSettings:
     """ARQ worker configuration."""
 
-    # RedisSettings.from_dsn() handles all URL formats including:
-    # redis://host:port (simple local)
-    # redis://default:password@host:port (Railway-style with credentials)
-    # rediss://... (SSL)
+    # RedisSettings.from_dsn() handles local redis:// URLs and the production
+    # Upstash rediss:// URL with credentials and TLS.
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
     functions = [run_pipeline]
     job_timeout = settings.ARQ_JOB_TIMEOUT_SECONDS
@@ -69,6 +67,17 @@ async def _preload_enabled_models() -> None:
         )
 
 
-if __name__ == "__main__":
+def start_worker() -> None:
+    """Warm enabled models, then start ARQ on a live event loop.
+
+    ``asyncio.run`` closes the loop it creates. ARQ 0.26 still obtains its
+    loop with ``asyncio.get_event_loop()``, which raises on Python 3.11 when
+    no current loop exists, so install a fresh loop before handing off.
+    """
     asyncio.run(_preload_enabled_models())
+    asyncio.set_event_loop(asyncio.new_event_loop())
     run_worker(WorkerSettings)
+
+
+if __name__ == "__main__":
+    start_worker()
