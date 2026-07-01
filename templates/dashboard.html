@@ -10,6 +10,9 @@
 
 <!-- Pipeline metrics summary (HTMX polled) -->
 <div id="metrics-grid" class="grid-4"
+     role="status"
+     aria-live="polite"
+     aria-busy="true"
      hx-get="/dashboard/metrics"
      hx-trigger="load, every 5s"
      hx-swap="innerHTML">
@@ -54,50 +57,50 @@
 {% endif %}
 
 <!-- Create briefing drawer -->
-<div id="drawer-overlay" class="drawer-overlay" onclick="closeCreateModal()"></div>
-<div id="create-drawer" class="drawer">
+<div id="drawer-overlay" class="drawer-overlay" onclick="closeCreateModal()" aria-hidden="true"></div>
+<div id="create-drawer" class="drawer" role="dialog" aria-modal="true" aria-labelledby="create-drawer-title" aria-hidden="true">
 
   <button class="drawer-close" onclick="closeCreateModal()" aria-label="Close">
     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
   </button>
 
   <div class="drawer-header">
-    <h2>Create Briefing</h2>
+    <h2 id="create-drawer-title">Create Briefing</h2>
   </div>
 
   <form class="drawer-form" id="create-form">
 
     <!-- Topic -->
     <div class="form-group">
-      <label class="form-label">Topic</label>
-      <input type="text" name="topic" required class="form-input" placeholder="e.g. AI Research">
+      <label class="form-label" for="create-topic">Topic</label>
+      <input type="text" name="topic" id="create-topic" required class="form-input" placeholder="e.g. AI Research" aria-describedby="create-errors">
     </div>
 
     <!-- Intent -->
     <div class="form-group">
-      <label class="form-label">What do you want to learn?</label>
-      <textarea name="intent_description" required rows="3" class="form-input" placeholder="Describe what you&#39;re looking for…"></textarea>
-      <p class="form-hint">Be specific — guides article selection (min 20 chars)</p>
+      <label class="form-label" for="create-intent">What do you want to learn?</label>
+      <textarea name="intent_description" id="create-intent" required rows="3" class="form-input" placeholder="Describe what you&#39;re looking for…" aria-describedby="create-intent-hint create-errors"></textarea>
+      <p class="form-hint" id="create-intent-hint">Be specific — guides article selection (min 20 chars)</p>
     </div>
 
     <!-- Keywords tag input -->
     <div class="form-group">
-      <label class="form-label">Keywords</label>
+      <label class="form-label" for="keywords-input">Keywords</label>
       <div class="tag-input-wrap" id="keywords-wrap" onclick="document.getElementById('keywords-input').focus()">
-        <input class="tag-input-inner" id="keywords-input" placeholder="Add keywords…" onkeydown="handleTagKey(event,'keywords')">
+        <input class="tag-input-inner" id="keywords-input" placeholder="Add keywords…" onkeydown="handleTagKey(event,'keywords')" aria-describedby="keywords-hint create-errors">
       </div>
-      <p class="form-hint">Press Enter to add each keyword</p>
+      <p class="form-hint" id="keywords-hint">Press Enter to add each keyword</p>
     </div>
 
     <!-- Sources -->
-    <div class="form-group">
-      <label class="form-label">Sources <span style="color:var(--muted-fg);font-weight:400;">(select at least 1)</span></label>
+    <fieldset class="form-group">
+      <legend class="form-label">Sources <span style="color:var(--muted-fg);font-weight:400;">(select at least 1)</span></legend>
       <div class="source-search-box">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" id="source-search-input" placeholder="Search sources…" oninput="applySourceFilters()">
+        <input type="search" id="source-search-input" placeholder="Search sources…" oninput="applySourceFilters()" aria-label="Search sources">
       </div>
       <div class="filter-pills" id="category-pills">
-        <button type="button" class="filter-pill active" data-cat="all" onclick="filterCategory(this)">All</button>
+        <button type="button" class="filter-pill active" data-cat="all" onclick="filterCategory(this)" aria-pressed="true">All</button>
         {% set cat_ns = namespace(seen=[]) %}
         {% for s in sources %}
           {% if s.category and s.category not in cat_ns.seen %}
@@ -105,7 +108,7 @@
           {% endif %}
         {% endfor %}
         {% for cat in cat_ns.seen %}
-        <button type="button" class="filter-pill" data-cat="{{ cat }}" onclick="filterCategory(this)">{{ cat }}</button>
+        <button type="button" class="filter-pill" data-cat="{{ cat }}" onclick="filterCategory(this)" aria-pressed="false">{{ cat }}</button>
         {% endfor %}
       </div>
       <div class="sources-list" id="sources-list">
@@ -124,20 +127,20 @@
         </label>
         {% endfor %}
       </div>
-      <div class="selected-counter" id="selected-counter">0 sources selected</div>
-    </div>
+      <div class="selected-counter" id="selected-counter" aria-live="polite">0 sources selected</div>
+    </fieldset>
 
     <!-- Delivery Email -->
     <div class="form-group">
-      <label class="form-label">Delivery email</label>
-      <input type="email" name="email" required class="form-input" placeholder="you@example.com">
+      <label class="form-label" for="create-email">Delivery email</label>
+      <input type="email" name="email" id="create-email" required class="form-input" placeholder="you@example.com" aria-describedby="create-errors">
     </div>
 
     <!-- Delivery Time -->
     <div class="form-group">
-      <label class="form-label">Delivery time</label>
+      <label class="form-label" for="time-picker-button">Delivery time</label>
       <div class="time-picker-wrap" id="time-picker-wrap">
-        <button type="button" class="time-picker-field" id="time-picker-button" onclick="toggleTimePicker()" aria-haspopup="listbox" aria-expanded="false">
+        <button type="button" class="time-picker-field" id="time-picker-button" onclick="toggleTimePicker()" aria-haspopup="listbox" aria-expanded="false" aria-controls="time-options">
           <span class="time-picker-icon" aria-hidden="true">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
           </span>
@@ -147,7 +150,7 @@
           </span>
           <span class="time-picker-chevron" aria-hidden="true">⌄</span>
         </button>
-        <div class="time-picker-panel" id="time-picker-panel" role="dialog" aria-label="Choose delivery time">
+        <div class="time-picker-panel" id="time-picker-panel" aria-label="Choose delivery time">
           <button type="button" class="time-picker-close" onclick="closeTimePicker()" aria-label="Close time picker">×</button>
           <div class="time-options" id="time-options" role="listbox"></div>
         </div>
@@ -158,7 +161,7 @@
 
     <!-- Exclusion Keywords -->
     <div class="form-group">
-      <label class="form-label">Exclusion keywords <span style="color:hsl(38 92% 55%);font-weight:400;">(optional)</span></label>
+      <label class="form-label" for="exclusion-input">Exclusion keywords <span style="color:var(--warning);font-weight:400;">(optional)</span></label>
       <div class="tag-input-wrap" id="exclusion-wrap" onclick="document.getElementById('exclusion-input').focus()">
         <input class="tag-input-inner" id="exclusion-input" placeholder="Words to filter out…" onkeydown="handleTagKey(event,'exclusion')">
       </div>
@@ -166,13 +169,13 @@
 
     <!-- Example Articles -->
     <div class="form-group">
-      <label class="form-label">Example articles <span style="color:hsl(38 92% 55%);font-weight:400;">(optional URLs)</span></label>
+      <label class="form-label" for="examples-input">Example articles <span style="color:var(--warning);font-weight:400;">(optional URLs)</span></label>
       <div class="tag-input-wrap" id="examples-wrap" onclick="document.getElementById('examples-input').focus()">
         <input class="tag-input-inner" id="examples-input" placeholder="Paste article URLs…" onkeydown="handleTagKey(event,'examples')">
       </div>
     </div>
 
-    <div id="create-errors" class="form-error"></div>
+    <div id="create-errors" class="form-error" role="alert" aria-live="assertive"></div>
 
     <div style="display:flex;gap:12px;padding-top:4px;">
       <button type="submit" id="create-btn" class="btn btn-primary" style="flex:1;justify-content:center;">Create Briefing</button>
@@ -185,8 +188,12 @@
 <script>
 /* ── Drawer open/close ── */
 function openCreateModal() {
+    window.createDrawerTrigger = document.activeElement;
     document.getElementById("drawer-overlay").classList.add("open");
-    document.getElementById("create-drawer").classList.add("open");
+    var drawer = document.getElementById("create-drawer");
+    drawer.classList.add("open");
+    drawer.setAttribute("aria-hidden", "false");
+    document.getElementById("drawer-overlay").setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
     setTimeout(function() {
         var el = document.querySelector("#create-form input[name='topic']");
@@ -195,9 +202,24 @@ function openCreateModal() {
 }
 function closeCreateModal() {
     document.getElementById("drawer-overlay").classList.remove("open");
-    document.getElementById("create-drawer").classList.remove("open");
+    var drawer = document.getElementById("create-drawer");
+    drawer.classList.remove("open");
+    drawer.setAttribute("aria-hidden", "true");
+    document.getElementById("drawer-overlay").setAttribute("aria-hidden", "true");
     document.body.style.overflow = "";
+    if (window.createDrawerTrigger && window.createDrawerTrigger.focus) window.createDrawerTrigger.focus();
 }
+
+document.getElementById("create-drawer").addEventListener("keydown", function(e) {
+    if (e.key !== "Tab") return;
+    var focusable = Array.from(this.querySelectorAll('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href]')).filter(function(el) {
+        return el.offsetParent !== null;
+    });
+    if (!focusable.length) return;
+    var first = focusable[0], last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
 
 /* ── Tag inputs ── */
 var tagState = { keywords: [], exclusion: [], examples: [] };
@@ -234,9 +256,14 @@ function renderTags(group) {
     tagState[group].forEach(function(tag) {
         var chip = document.createElement("span");
         chip.className = "tag-chip";
-        var safe = tag.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-        chip.innerHTML = tag + ' <button type="button" onclick="removeTag(\'' + group + "','" + safe + '\')">'
-            + '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';
+        var label = document.createTextNode(tag + " ");
+        var removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.setAttribute("aria-label", "Remove " + tag);
+        removeButton.innerHTML = '<svg aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+        removeButton.addEventListener("click", function() { removeTag(group, tag); });
+        chip.appendChild(label);
+        chip.appendChild(removeButton);
         wrap.insertBefore(chip, input);
     });
     input.placeholder = tagState[group].length ? "" : tagPlaceholders[group];
@@ -245,8 +272,9 @@ function renderTags(group) {
 /* ── Source filter ── */
 var currentCat = "all";
 function filterCategory(pill) {
-    document.querySelectorAll("#category-pills .filter-pill").forEach(function(p) { p.classList.remove("active"); });
+    document.querySelectorAll("#category-pills .filter-pill").forEach(function(p) { p.classList.remove("active"); p.setAttribute("aria-pressed", "false"); });
     pill.classList.add("active");
+    pill.setAttribute("aria-pressed", "true");
     currentCat = pill.dataset.cat;
     applySourceFilters();
 }
@@ -358,10 +386,12 @@ function updateSelectedCount() {
         }
     };
     window.closeTimePicker = function() {
+        var shouldRestoreFocus = panel.contains(document.activeElement);
         panel.classList.remove("open");
         panel.classList.remove("drop-up");
         button.classList.remove("open");
         button.setAttribute("aria-expanded", "false");
+        if (shouldRestoreFocus) button.focus();
     };
     window.toggleTimePicker = function() {
         if (panel.classList.contains("open")) closeTimePicker();
@@ -381,6 +411,8 @@ function updateSelectedCount() {
                 "selected",
                 parseInt(option.dataset.localHour, 10) === localH && parseInt(option.dataset.localMinute, 10) === localM
             );
+            option.setAttribute("aria-selected", option.classList.contains("selected") ? "true" : "false");
+            option.tabIndex = option.classList.contains("selected") ? 0 : -1;
         });
         hint.textContent = "Delivers daily at " + label + " " + tzAbbr + " · UTC " + String(utc.hour).padStart(2, "0") + ":" + String(utc.minute).padStart(2, "0");
     }
@@ -392,6 +424,9 @@ function updateSelectedCount() {
                 var row = document.createElement("button");
                 row.type = "button";
                 row.className = "time-option";
+                row.setAttribute("role", "option");
+                row.setAttribute("aria-selected", "false");
+                row.tabIndex = -1;
                 row.dataset.localHour = localH;
                 row.dataset.localMinute = localM;
                 row.textContent = local.hour + ":" + local.minute + " " + local.period;
@@ -408,10 +443,25 @@ function updateSelectedCount() {
     document.addEventListener("keydown", function(e) {
         if (e.key === "Escape") closeTimePicker();
     });
+    options.addEventListener("keydown", function(e) {
+        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+        e.preventDefault();
+        var rows = Array.from(options.querySelectorAll(".time-option"));
+        var index = rows.indexOf(document.activeElement);
+        if (e.key === "Home") index = 0;
+        else if (e.key === "End") index = rows.length - 1;
+        else if (e.key === "ArrowDown") index = Math.min(rows.length - 1, index + 1);
+        else index = Math.max(0, index - 1);
+        if (rows[index]) rows[index].focus();
+    });
     window.addEventListener("resize", function() {
         if (panel.classList.contains("open")) positionTimePicker();
     });
 })();
+
+document.body.addEventListener("htmx:afterSwap", function(e) {
+    if (e.target && e.target.id === "metrics-grid") e.target.setAttribute("aria-busy", "false");
+});
 
 /* ── Trigger pipeline ── */
 async function triggerPipeline(briefingId) {
@@ -458,6 +508,7 @@ document.getElementById("create-form").addEventListener("submit", async function
     var form = e.target;
     var errDiv = document.getElementById("create-errors");
     errDiv.classList.remove("visible");
+    form.querySelectorAll("[aria-invalid='true']").forEach(function(field) { field.removeAttribute("aria-invalid"); });
     commitPendingTag("keywords");
     commitPendingTag("exclusion");
     commitPendingTag("examples");
@@ -473,10 +524,15 @@ document.getElementById("create-form").addEventListener("submit", async function
     var exampleArticles = tagState.examples.slice();
 
     if (!topic || !intentDescription || keywords.length === 0 || !email || sources.length === 0) {
+        if (!topic) form.topic.setAttribute("aria-invalid", "true");
+        if (!intentDescription) form.intent_description.setAttribute("aria-invalid", "true");
+        if (!email) form.email.setAttribute("aria-invalid", "true");
+        if (keywords.length === 0) document.getElementById("keywords-input").setAttribute("aria-invalid", "true");
         errDiv.textContent = "Please fill in Topic, Intent, at least one Keyword, Email, and select a source.";
         errDiv.classList.add("visible"); return;
     }
     if (intentDescription.length < 20) {
+        form.intent_description.setAttribute("aria-invalid", "true");
         errDiv.textContent = "Intent description must be at least 20 characters.";
         errDiv.classList.add("visible"); return;
     }

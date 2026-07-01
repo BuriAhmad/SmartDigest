@@ -11,22 +11,22 @@
 </div>
 
 <section class="card" style="max-width:520px;">
-  <h3 style="font-size:16px;margin-bottom:10px;">Google sign-in</h3>
+  <h2 style="font-size:16px;margin-bottom:10px;">Google sign-in</h2>
   <p class="subtitle" style="margin-bottom:14px;">Connect Google to this account so you can use Continue with Google next time.</p>
-  <div id="google-link-message" class="form-error" style="margin-bottom:12px;"></div>
+  <div id="google-link-message" class="form-error" role="status" aria-live="polite" style="margin-bottom:12px;"></div>
   <button type="button" id="link-google-btn" class="btn btn-outline" style="margin-bottom:24px;">Connect Google</button>
 
-  <h3 style="font-size:16px;margin-bottom:16px;">Change password</h3>
+  <h2 style="font-size:16px;margin-bottom:16px;">Change password</h2>
   <form id="change-password-form">
     <div class="form-group">
-      <label class="form-label">New password</label>
+      <label class="form-label" for="new-password">New password</label>
       <input type="password" id="new-password" required minlength="8" autocomplete="new-password" class="form-input">
     </div>
     <div class="form-group">
-      <label class="form-label">Confirm new password</label>
+      <label class="form-label" for="confirm-password">Confirm new password</label>
       <input type="password" id="confirm-password" required minlength="8" autocomplete="new-password" class="form-input">
     </div>
-    <div id="password-message" class="form-error"></div>
+    <div id="password-message" class="form-error" role="alert" aria-live="assertive"></div>
     <button type="submit" id="change-password-btn" class="btn btn-primary">Update password</button>
   </form>
 </section>

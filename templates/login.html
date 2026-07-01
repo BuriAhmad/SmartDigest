@@ -7,7 +7,7 @@
 <div style="width:100%;max-width:400px;">
   <div style="text-align:center;margin-bottom:32px;">
     <div style="display:inline-flex;align-items:center;gap:10px;margin-bottom:16px;">
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="hsl(172 66% 50%)" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
       <span style="font-size:24px;font-weight:700;letter-spacing:-0.02em;color:var(--fg);">SmartDigest</span>
     </div>
     <p style="font-size:14px;color:var(--muted-fg);">Sign in to manage your content briefings.</p>
@@ -15,16 +15,16 @@
 
   <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;">
     <!-- Tab switcher -->
-    <div id="auth-tabs" style="display:flex;border-bottom:1px solid var(--border);margin-bottom:20px;">
-      <button onclick="showTab('login')" id="tab-login" style="flex:1;padding:8px 0;font-size:14px;font-weight:500;cursor:pointer;border:none;background:none;font-family:inherit;border-bottom:2px solid var(--primary);color:var(--fg);transition:all 0.15s;">Log In</button>
-      <button onclick="showTab('register')" id="tab-register" style="flex:1;padding:8px 0;font-size:14px;font-weight:500;cursor:pointer;border:none;background:none;font-family:inherit;border-bottom:2px solid transparent;color:var(--muted-fg);transition:all 0.15s;">Sign Up</button>
+    <div id="auth-tabs" role="tablist" aria-label="Authentication" style="display:flex;border-bottom:1px solid var(--border);margin-bottom:20px;">
+      <button type="button" role="tab" aria-selected="true" aria-controls="login-form" onclick="showTab('login')" id="tab-login" style="flex:1;padding:8px 0;font-size:14px;font-weight:500;cursor:pointer;border:none;background:none;font-family:inherit;border-bottom:2px solid var(--primary);color:var(--fg);transition:all 0.15s;">Log In</button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="register-form" tabindex="-1" onclick="showTab('register')" id="tab-register" style="flex:1;padding:8px 0;font-size:14px;font-weight:500;cursor:pointer;border:none;background:none;font-family:inherit;border-bottom:2px solid transparent;color:var(--muted-fg);transition:all 0.15s;">Sign Up</button>
     </div>
 
     <button type="button" id="google-btn" class="btn btn-outline" style="width:100%;justify-content:center;margin-bottom:16px;">
       <span style="font-weight:700;">G</span>
       Continue with Google
     </button>
-    <div id="google-errors" class="form-error" style="margin-top:-4px;margin-bottom:12px;"></div>
+    <div id="google-errors" class="form-error" role="alert" aria-live="assertive" style="margin-top:-4px;margin-bottom:12px;"></div>
 
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;color:var(--muted-fg);font-size:12px;">
       <div style="height:1px;background:var(--border);flex:1;"></div>
@@ -33,39 +33,39 @@
     </div>
 
     <!-- Login form -->
-    <form id="login-form">
+    <form id="login-form" role="tabpanel" aria-labelledby="tab-login">
       <div class="form-group">
-        <label class="form-label">Email</label>
+        <label class="form-label" for="login-email">Email</label>
         <input type="email" name="email" id="login-email" required placeholder="you@example.com" autocomplete="email" autofocus class="form-input">
       </div>
       <div class="form-group">
-        <label class="form-label">Password</label>
+        <label class="form-label" for="login-password">Password</label>
         <input type="password" name="password" id="login-password" required placeholder="••••••••" minlength="8" autocomplete="current-password" class="form-input">
       </div>
-      <div id="login-errors" class="form-error"></div>
+      <div id="login-errors" class="form-error" role="alert" aria-live="assertive"></div>
       <button type="submit" id="login-btn" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px;">Log In</button>
       <button type="button" id="forgot-btn" class="btn btn-ghost" style="width:100%;justify-content:center;margin-top:8px;">Forgot password?</button>
     </form>
 
     <!-- Register form -->
-    <form id="register-form" style="display:none;">
+    <form id="register-form" role="tabpanel" aria-labelledby="tab-register" style="display:none;">
       <div class="form-group">
-        <label class="form-label">Name</label>
+        <label class="form-label" for="reg-name">Name</label>
         <input type="text" name="name" id="reg-name" required placeholder="Your name" autocomplete="name" class="form-input">
       </div>
       <div class="form-group">
-        <label class="form-label">Email</label>
+        <label class="form-label" for="reg-email">Email</label>
         <input type="email" name="email" id="reg-email" required placeholder="you@example.com" autocomplete="email" class="form-input">
       </div>
       <div class="form-group">
-        <label class="form-label">Password</label>
+        <label class="form-label" for="reg-password">Password</label>
         <input type="password" name="password" id="reg-password" required placeholder="Min 8 characters" minlength="8" autocomplete="new-password" class="form-input">
       </div>
       <div class="form-group">
-        <label class="form-label">Confirm Password</label>
+        <label class="form-label" for="reg-confirm">Confirm Password</label>
         <input type="password" id="reg-confirm" required placeholder="Repeat password" minlength="8" autocomplete="new-password" class="form-input">
       </div>
-      <div id="register-errors" class="form-error"></div>
+      <div id="register-errors" class="form-error" role="alert" aria-live="assertive"></div>
       <button type="submit" id="register-btn" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px;">Create Account</button>
     </form>
   </div>
@@ -115,6 +115,10 @@ function showTab(tab) {
         tabLogin.style.color = "var(--fg)";
         tabRegister.style.borderBottomColor = "transparent";
         tabRegister.style.color = "var(--muted-fg)";
+        tabLogin.setAttribute("aria-selected", "true");
+        tabLogin.removeAttribute("tabindex");
+        tabRegister.setAttribute("aria-selected", "false");
+        tabRegister.setAttribute("tabindex", "-1");
         setTimeout(function() { document.getElementById("login-email").focus(); }, 50);
     } else {
         loginForm.style.display = "none";
@@ -123,16 +127,23 @@ function showTab(tab) {
         tabRegister.style.color = "var(--fg)";
         tabLogin.style.borderBottomColor = "transparent";
         tabLogin.style.color = "var(--muted-fg)";
+        tabRegister.setAttribute("aria-selected", "true");
+        tabRegister.removeAttribute("tabindex");
+        tabLogin.setAttribute("aria-selected", "false");
+        tabLogin.setAttribute("tabindex", "-1");
         setTimeout(function() { document.getElementById("reg-name").focus(); }, 50);
     }
 }
 window.showTab = showTab;
+if (new URLSearchParams(window.location.search).get("tab") === "signup") showTab("register");
 
 function showAuthError(scope, message) {
     var errDiv = document.getElementById(scope + "-errors");
     if (!errDiv) return;
     errDiv.textContent = message;
     errDiv.classList.add("visible");
+    var form = document.getElementById(scope + "-form");
+    if (form) form.querySelectorAll("input").forEach(function(input) { input.setAttribute("aria-invalid", "true"); });
 }
 
 function clearAuthErrors() {
@@ -140,7 +151,16 @@ function clearAuthErrors() {
         var el = document.getElementById(id);
         if (el) el.classList.remove("visible");
     });
+    document.querySelectorAll("#login-form input, #register-form input").forEach(function(input) { input.removeAttribute("aria-invalid"); });
 }
+
+document.getElementById("auth-tabs").addEventListener("keydown", function(e) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    var next = document.activeElement.id === "tab-login" ? "register" : "login";
+    showTab(next);
+    document.getElementById("tab-" + next).focus();
+});
 
 function firebaseErrorMessage(error) {
     var code = error && error.code ? error.code : "";

@@ -20,13 +20,13 @@
         </div>
       </div>
       <div class="stack">
-        <div style="display:flex;justify-content:space-between;gap:16px;align-items:center;border-bottom:1px solid var(--border);padding-bottom:14px;">
+        <div class="settings-row" style="border-bottom:1px solid var(--border);padding-bottom:14px;">
           <div>
             <div class="cell-muted">Email</div>
-            <div class="cell-title" style="margin-top:4px;overflow:hidden;text-overflow:ellipsis;">{{ user_email }}</div>
+            <div class="cell-title settings-value">{{ user_email }}</div>
           </div>
         </div>
-        <div style="display:flex;justify-content:space-between;gap:16px;align-items:center;">
+        <div class="settings-row">
           <div>
             <div class="cell-muted">Security</div>
             <div class="cell-title" style="margin-top:4px;">Password and sign-in methods</div>
@@ -44,19 +44,19 @@
         </div>
       </div>
       <div class="stack">
-        <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;border-bottom:1px solid var(--border);padding-bottom:14px;">
+        <div class="settings-row" style="align-items:flex-start;border-bottom:1px solid var(--border);padding-bottom:14px;">
           <div>
             <div class="cell-muted">Delivery email</div>
-            <div class="cell-title" style="margin-top:4px;overflow:hidden;text-overflow:ellipsis;">{{ user_email }}</div>
+            <div class="cell-title settings-value">{{ user_email }}</div>
           </div>
         </div>
-        <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;border-bottom:1px solid var(--border);padding-bottom:14px;">
+        <div class="settings-row" style="align-items:flex-start;border-bottom:1px solid var(--border);padding-bottom:14px;">
           <div>
             <div class="cell-muted">Timezone</div>
             <div class="cell-title" id="settings-timezone" style="margin-top:4px;">Detecting...</div>
           </div>
         </div>
-        <div style="display:flex;justify-content:space-between;gap:16px;align-items:center;">
+        <div class="settings-row">
           <div>
             <div class="cell-muted">Briefing schedules</div>
             <p class="panel-subtitle" style="margin-top:4px;">Delivery time is configured per briefing.</p>
@@ -88,6 +88,7 @@
         <button class="btn btn-outline btn-sm" disabled>Export digest history</button>
         <button class="btn btn-ghost btn-sm btn-destructive-text" disabled>Delete account</button>
       </div>
+      <p class="form-hint" style="margin-top:8px;">Data export and account deletion are coming soon.</p>
     </section>
   </aside>
 </div>

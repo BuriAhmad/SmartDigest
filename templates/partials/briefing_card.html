@@ -1,6 +1,6 @@
 <div class="card" id="briefing-card-{{ briefing.id }}">
   <div class="card-header">
-    <h3>{{ briefing.topic }}</h3>
+    <h2>{{ briefing.topic }}</h2>
     <span class="schedule cron-schedule" data-cron="{{ briefing.schedule }}">{{ briefing.schedule }}</span>
   </div>
   {% if briefing.intent_description %}
